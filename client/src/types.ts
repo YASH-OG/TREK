@@ -307,6 +307,9 @@ export interface VacayEntry {
   // Portion of a vacation day this entry counts as: 1 = full day, 0.5 = half
   // day (#552). Absent on legacy entries, which are treated as full days.
   fraction?: number
+  // Leave type (#1074): 'comp' = flex/comp day (does not touch the entitlement),
+  // 'vacation' (or absent, for legacy entries) = a regular vacation day.
+  kind?: 'vacation' | 'comp'
 }
 
 // Vacay per-user stats row as returned by getStats
@@ -321,6 +324,9 @@ export interface VacayStat {
   total_available: number
   used: number
   remaining: number
+  // Comp/flex days used this year (#1074) — informational, not deducted from the
+  // entitlement. Absent on older server builds.
+  comp_used?: number
 }
 
 export interface HolidayInfo {
@@ -356,7 +362,7 @@ export interface SharedVacayCalendar {
   owner_name: string
   color: string
   hidden: boolean
-  entries: { date: string; fraction?: number }[]
+  entries: { date: string; fraction?: number; kind?: 'vacation' | 'comp' }[]
   companyHolidays: { date: string; note?: string }[]
 }
 

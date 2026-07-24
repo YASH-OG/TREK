@@ -42,6 +42,8 @@ export function useMVacay() {
   const [mode, setMode] = useState<MVacayMode>('vacation')
   // Half-day modifier: when on, taps log the selected person's day as 0.5 (#552).
   const [halfDay, setHalfDay] = useState(false)
+  // Comp/Flex day modifier (#1074): when on, taps log the day as kind='comp' (free).
+  const [compDay, setCompDay] = useState(false)
   const [sheet, setSheet] = useState<MVacaySheet>(null)
   const [tripDates, setTripDates] = useState<Set<string>>(new Set())
 
@@ -155,8 +157,8 @@ export function useMVacay() {
     }
     if (blockWeekends && isWeekend(dateStr, weekendDays)) return
     if (companyHolidaysEnabled && companyHolidaySet.has(dateStr)) return
-    await toggleEntry(dateStr, selectedUserId || undefined, halfDay ? 0.5 : 1)
-  }, [view, mode, halfDay, companyHolidaysEnabled, blockWeekends, weekendDays, companyHolidaySet, toggleEntry, toggleCompanyHoliday, selectedUserId])
+    await toggleEntry(dateStr, selectedUserId || undefined, halfDay ? 0.5 : 1, compDay ? 'comp' : 'vacation')
+  }, [view, mode, halfDay, compDay, companyHolidaysEnabled, blockWeekends, weekendDays, companyHolidaySet, toggleEntry, toggleCompanyHoliday, selectedUserId])
 
   // Entitlement stepper: never below what is already used this year
   // (carried-over days cover the difference when used > entitlement).
@@ -198,7 +200,7 @@ export function useMVacay() {
     users, isFused, currentUser,
     incomingInvites, acceptInvite, declineInvite,
     incomingShares, toggleShareHidden,
-    view, month, mode, halfDay, setHalfDay, sheet, setSheet, setMode, setMonth,
+    view, month, mode, halfDay, setHalfDay, compDay, setCompDay, sheet, setSheet, setMode, setMonth,
     tripDates, tripDotColor,
     blockWeekends, companyHolidaysEnabled, holidaysEnabled, weekStart, weekendDays,
     dayCtx, monthNamesShort, monthNameLong,

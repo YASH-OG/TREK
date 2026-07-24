@@ -185,7 +185,7 @@ export class VacayController {
   @HttpCode(200)
   toggleEntry(
     @CurrentUser() user: User,
-    @Body() body: { date?: string; target_user_id?: number | string; fraction?: number },
+    @Body() body: { date?: string; target_user_id?: number | string; fraction?: number; kind?: string },
     @Headers('x-socket-id') socketId?: string,
   ) {
     if (!body.date) {
@@ -200,7 +200,7 @@ export class VacayController {
       }
       userId = tid;
     }
-    return this.vacay.toggleEntry(userId, planId, body.date, body.fraction, socketId);
+    return this.vacay.toggleEntry(userId, planId, body.date, body.fraction, body.kind, socketId);
   }
 
   @Post('entries/company-holiday')

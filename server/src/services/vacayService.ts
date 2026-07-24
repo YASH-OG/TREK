@@ -77,16 +77,99 @@ const CACHE_TTL = 24 * 60 * 60 * 1000;
  * half day (#552) counts as 0.5 and a full day as 1. Entries predating the
  * feature have fraction = 1, so this matches the old COUNT(*) for them.
  */
-function usedDays(userId: number, planId: number, yearPrefix: string): number {
+function usedDays(userId: number, planId: number, year: number): number {
+  // Comp/Flex days (#1074) are free — kind='comp' contributes 0 to the entitlement,
+  // vacation days contribute their fraction. Entries predating the column are
+  // 'vacation' by default. The window (#737) is the user's leave-year period; for
+  // 'calendar' it is Jan 1 – Dec 31, byte-identical to the old date-prefix match.
+  const { start, end } = resolveYearWindow(userId, year);
   const row = db.prepare(
-    'SELECT COALESCE(SUM(fraction), 0) AS used FROM vacay_entries WHERE user_id = ? AND plan_id = ? AND date LIKE ?'
-  ).get(userId, planId, yearPrefix) as { used: number };
+    "SELECT COALESCE(SUM(CASE WHEN kind = 'comp' THEN 0 ELSE fraction END), 0) AS used FROM vacay_entries WHERE user_id = ? AND plan_id = ? AND date >= ? AND date < ?"
+  ).get(userId, planId, start, end) as { used: number };
+  return row.used;
+}
+
+/** Comp/Flex days (#1074) used in a user's leave-year period — SUM of fractions for kind='comp'. */
+function compUsedDays(userId: number, planId: number, year: number): number {
+  const { start, end } = resolveYearWindow(userId, year);
+  const row = db.prepare(
+    "SELECT COALESCE(SUM(fraction), 0) AS used FROM vacay_entries WHERE user_id = ? AND plan_id = ? AND date >= ? AND date < ? AND kind = 'comp'"
+  ).get(userId, planId, start, end) as { used: number };
   return row.used;
 }
 
 /** Coerce an arbitrary input to a supported entry fraction: half (0.5) or full (1). */
 function normalizeFraction(value: unknown): number {
   return Number(value) === 0.5 ? 0.5 : 1;
+}
+
+/** Coerce an arbitrary input to a supported leave type: comp/flex or vacation (#1074). */
+function normalizeKind(value: unknown): 'vacation' | 'comp' {
+  return value === 'comp' ? 'comp' : 'vacation';
+}
+
+// ---------------------------------------------------------------------------
+// Configurable vacation year (#737)
+// ---------------------------------------------------------------------------
+
+export interface VacayUserSettings {
+  user_id: number;
+  year_type: 'calendar' | 'fiscal' | 'anniversary';
+  year_start_month: number;
+  year_start_day: number;
+  hire_date: string | null;
+}
+
+export function getUserYearSettings(userId: number): VacayUserSettings | undefined {
+  return db.prepare('SELECT * FROM vacay_user_settings WHERE user_id = ?').get(userId) as VacayUserSettings | undefined;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Coerce an arbitrary input to a supported leave-year type (#737). */
+function normalizeYearType(value: unknown): 'calendar' | 'fiscal' | 'anniversary' {
+  return value === 'fiscal' || value === 'anniversary' ? value : 'calendar';
+}
+
+/**
+ * Resolve a user's leave-year window for a period (#737). The `year` integer names
+ * the period; 'calendar' returns Jan 1 – Dec 31 (the unchanged default, byte-identical
+ * to the old `date LIKE 'YYYY-%'`), 'fiscal' starts on the configured month/day, and
+ * 'anniversary' on the hire date's month/day. Window is [start, end) — start inclusive,
+ * end exclusive. Because periods are consecutive, `year-1` is always the window that
+ * ends where `year`'s begins, so the carry-over chains stay valid unchanged.
+ */
+export function resolveYearWindow(userId: number, year: number): { start: string; end: string } {
+  const s = getUserYearSettings(userId);
+  if (!s || s.year_type === 'calendar') {
+    return { start: `${year}-01-01`, end: `${year + 1}-01-01` };
+  }
+  let month = s.year_start_month || 1;
+  let day = s.year_start_day || 1;
+  if (s.year_type === 'anniversary' && s.hire_date) {
+    const parts = s.hire_date.split('-');
+    month = parseInt(parts[1], 10) || 1;
+    day = parseInt(parts[2], 10) || 1;
+  }
+  return { start: `${year}-${pad2(month)}-${pad2(day)}`, end: `${year + 1}-${pad2(month)}-${pad2(day)}` };
+}
+
+/** Upsert a user's leave-year settings (#737). */
+export function updateUserYearSettings(
+  userId: number,
+  data: { year_type?: unknown; year_start_month?: unknown; year_start_day?: unknown; hire_date?: unknown },
+): VacayUserSettings {
+  const type = normalizeYearType(data.year_type);
+  const month = Math.min(12, Math.max(1, parseInt(String(data.year_start_month ?? 1), 10) || 1));
+  const day = Math.min(31, Math.max(1, parseInt(String(data.year_start_day ?? 1), 10) || 1));
+  const hire = typeof data.hire_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.hire_date) ? data.hire_date : null;
+  db.prepare(`
+    INSERT INTO vacay_user_settings (user_id, year_type, year_start_month, year_start_day, hire_date)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET year_type = excluded.year_type, year_start_month = excluded.year_start_month,
+      year_start_day = excluded.year_start_day, hire_date = excluded.hire_date
+  `).run(userId, type, month, day, hire);
+  return getUserYearSettings(userId)!;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,7 +381,7 @@ export async function updatePlan(planId: number, body: UpdatePlanBody, socketId:
       const yr = years[i].year;
       const nextYr = years[i + 1].year;
       for (const u of users) {
-        const used = usedDays(u.id, planId, `${yr}-%`);
+        const used = usedDays(u.id, planId, yr);
         const config = db.prepare('SELECT * FROM vacay_user_years WHERE user_id = ? AND plan_id = ? AND year = ?').get(u.id, planId, yr) as VacayUserYear | undefined;
         const total = (config ? config.vacation_days : 30) + (config ? config.carried_over : 0);
         const carry = Math.max(0, total - used);
@@ -713,7 +796,7 @@ export function getSharedCalendars(viewerId: number, year: string) {
       return { share_id: s.id, owner_id: s.owner_id, owner_name: s.username, color, hidden: !!s.hidden, entries: [], companyHolidays: [] };
     }
     const entries = db.prepare(
-      'SELECT date, fraction FROM vacay_entries WHERE plan_id = ? AND user_id = ? AND date LIKE ? ORDER BY date'
+      'SELECT date, fraction, kind FROM vacay_entries WHERE plan_id = ? AND user_id = ? AND date LIKE ? ORDER BY date'
     ).all(plan.id, s.owner_id, `${year}-%`);
     // Company holidays are plan-wide context for "when is this person off";
     // only exposed while the owner has the feature enabled, and dates only —
@@ -745,7 +828,7 @@ export function addYear(planId: number, year: number, socketId: string | undefin
       if (carryOverEnabled) {
         const prevConfig = db.prepare('SELECT * FROM vacay_user_years WHERE user_id = ? AND plan_id = ? AND year = ?').get(u.id, planId, year - 1) as VacayUserYear | undefined;
         if (prevConfig) {
-          const used = usedDays(u.id, planId, `${year - 1}-%`);
+          const used = usedDays(u.id, planId, year - 1);
           const total = prevConfig.vacation_days + prevConfig.carried_over;
           carriedOver = Math.max(0, total - used);
         }
@@ -776,7 +859,7 @@ export function deleteYear(planId: number, year: number, socketId: string | unde
       if (carryOverEnabled && prevYear) {
         const prevConfig = db.prepare('SELECT * FROM vacay_user_years WHERE user_id = ? AND plan_id = ? AND year = ?').get(u.id, planId, prevYear.year) as VacayUserYear | undefined;
         if (prevConfig) {
-          const used = usedDays(u.id, planId, `${prevYear.year}-%`);
+          const used = usedDays(u.id, planId, prevYear.year);
           const total = prevConfig.vacation_days + prevConfig.carried_over;
           carry = Math.max(0, total - used);
         }
@@ -805,24 +888,25 @@ export function getEntries(planId: number, year: string) {
   return { entries, companyHolidays };
 }
 
-export function toggleEntry(userId: number, planId: number, date: string, fraction?: unknown, socketId?: string): { action: string; fraction?: number } {
+export function toggleEntry(userId: number, planId: number, date: string, fraction?: unknown, kind?: unknown, socketId?: string): { action: string; fraction?: number; kind?: string } {
   const frac = normalizeFraction(fraction);
-  const existing = db.prepare('SELECT id, fraction FROM vacay_entries WHERE user_id = ? AND date = ? AND plan_id = ?').get(userId, date, planId) as { id: number; fraction: number } | undefined;
+  const knd = normalizeKind(kind);
+  const existing = db.prepare('SELECT id, fraction, kind FROM vacay_entries WHERE user_id = ? AND date = ? AND plan_id = ?').get(userId, date, planId) as { id: number; fraction: number; kind: string | null } | undefined;
   if (existing) {
-    // Clicking the same kind of day again clears it; clicking the other kind
-    // (full over a half, or vice versa) converts it in place.
-    if (existing.fraction === frac) {
+    // Clicking the exact same day again (same type AND same fraction) clears it;
+    // clicking a different type or fraction converts it in place (#552/#1074).
+    if (existing.fraction === frac && (existing.kind || 'vacation') === knd) {
       db.prepare('DELETE FROM vacay_entries WHERE id = ?').run(existing.id);
       notifyPlanUsers(planId, socketId);
       return { action: 'removed' };
     }
-    db.prepare('UPDATE vacay_entries SET fraction = ? WHERE id = ?').run(frac, existing.id);
+    db.prepare('UPDATE vacay_entries SET fraction = ?, kind = ? WHERE id = ?').run(frac, knd, existing.id);
     notifyPlanUsers(planId, socketId);
-    return { action: 'updated', fraction: frac };
+    return { action: 'updated', fraction: frac, kind: knd };
   }
-  db.prepare('INSERT INTO vacay_entries (plan_id, user_id, date, note, fraction) VALUES (?, ?, ?, ?, ?)').run(planId, userId, date, '', frac);
+  db.prepare('INSERT INTO vacay_entries (plan_id, user_id, date, note, fraction, kind) VALUES (?, ?, ?, ?, ?, ?)').run(planId, userId, date, '', frac, knd);
   notifyPlanUsers(planId, socketId);
-  return { action: 'added', fraction: frac };
+  return { action: 'added', fraction: frac, kind: knd };
 }
 
 export function toggleCompanyHoliday(planId: number, date: string, note: string | undefined, socketId: string | undefined): { action: string } {
@@ -849,7 +933,8 @@ export function getStats(planId: number, year: number) {
   const users = getPlanUsers(planId);
 
   return users.map(u => {
-    const used = usedDays(u.id, planId, `${year}-%`);
+    const used = usedDays(u.id, planId, year);
+    const compUsed = compUsedDays(u.id, planId, year);
     const config = db.prepare('SELECT * FROM vacay_user_years WHERE user_id = ? AND plan_id = ? AND year = ?').get(u.id, planId, year) as VacayUserYear | undefined;
     const vacationDays = config ? config.vacation_days : 30;
     const carriedOver = carryOverEnabled ? (config ? config.carried_over : 0) : 0;
@@ -869,7 +954,7 @@ export function getStats(planId: number, year: number) {
     return {
       user_id: u.id, person_name: u.username, person_color: colorRow?.color || '#6366f1',
       year, vacation_days: vacationDays, carried_over: carriedOver,
-      total_available: total, used, remaining,
+      total_available: total, used, remaining, comp_used: compUsed,
     };
   });
 }

@@ -1,5 +1,5 @@
 import { schoolHolidayBand } from '../../../components/Vacay/holidayVisual'
-import { dayVisual, localDateStr, monthLead, type DayVisualContext } from './vacayDayModel'
+import { dayVisual, hatchTint, localDateStr, monthLead, type DayVisualContext } from './vacayDayModel'
 
 interface MVacayMonthProps {
   year: number
@@ -45,7 +45,23 @@ export default function MVacayMonth({
             }`}
             style={{ background: visual.background, color: visual.numColor, boxShadow: visual.boxShadow }}
           >
-            {day}
+            {/* 2+ people: equal-width segment overlays, each solid (vacation) or hatched (comp) (#1074). */}
+            {visual.segments && visual.segments.length > 1 && (
+              <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 'inherit' }} aria-hidden>
+                {visual.segments.map((seg, si) => (
+                  <div
+                    key={si}
+                    className="absolute top-0 h-full"
+                    style={{
+                      left: `${(si * 100) / visual.segments!.length}%`,
+                      width: `${100 / visual.segments!.length}%`,
+                      background: seg.comp ? hatchTint(seg.color) : seg.color,
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+            <span className="relative z-[1]">{day}</span>
             {tripDates.has(dateStr) && (
               <span
                 aria-hidden

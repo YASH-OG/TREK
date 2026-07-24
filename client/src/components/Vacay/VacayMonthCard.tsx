@@ -58,6 +58,10 @@ export default function VacayMonthCard({
   // Soften the person colour a touch so the filled days don't look overly loud
   // against the light glass surface (the raw colour reads very saturated).
   const fill = (c?: string) => `color-mix(in srgb, ${pc(c)} 78%, transparent)`
+  // Comp/Flex days (#1074) render as a diagonal hatch of the person colour (Version B),
+  // so a comp segment reads as "reserved but free" — distinct from a solid vacation fill.
+  const hatch = (c?: string) => `repeating-linear-gradient(45deg, ${fill(c)} 0 3px, transparent 3px 6px)`
+  const segFill = (e: VacayEntry) => (e.kind === 'comp' ? hatch(e.person_color) : fill(e.person_color))
 
   const todayStr = useMemo(() => {
     const d = new Date()
@@ -120,8 +124,9 @@ export default function VacayMonthCard({
 
           // Cell fill — people win, then company, then holiday (keeps each calendar's own colour).
           let background = 'transparent'
-          if (dayEntries.length === 1) background = fill(dayEntries[0].person_color)
-          else if (dayEntries.length === 2) background = `linear-gradient(135deg, ${fill(dayEntries[0].person_color)} 50%, ${fill(dayEntries[1].person_color)} 50%)`
+          if (dayEntries.length === 1) background = segFill(dayEntries[0])
+          // 2 people render via the diagonal overlay below, so each half can be a solid
+          // vacation fill or a hatched comp fill independently (#1074).
           else if (dayEntries.length === 0 && isCompany) background = 'rgba(245,158,11,0.22)'
           else if (dayEntries.length === 0 && publicHoliday) background = `color-mix(in srgb, ${publicHoliday.color} 22%, transparent)`
           // A plain school-break day gets a soft wash of its calendar colour so a run of
@@ -165,20 +170,27 @@ export default function VacayMonthCard({
                 if (hasEntries || sharedColors.length > 0 || schoolHolidayMarkers.length > 0) onCellHover?.(null, null)
               }}
             >
-              {/* 3+ people: quadrant overlay at full colour (1 & 2 use the cell background). */}
+              {/* 2 people: diagonal split — each half solid (vacation) or hatched (comp) (#1074). */}
+              {dayEntries.length === 2 && (
+                <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 10 }}>
+                  <div className="absolute inset-0" style={{ background: segFill(dayEntries[0]), clipPath: 'polygon(0 0, 100% 0, 0 100%)' }} />
+                  <div className="absolute inset-0" style={{ background: segFill(dayEntries[1]), clipPath: 'polygon(100% 0, 100% 100%, 0 100%)' }} />
+                </div>
+              )}
+              {/* 3+ people: quadrant overlay (1 uses the cell background, 2 the diagonal above). */}
               {dayEntries.length === 3 && (
                 <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 10 }}>
-                  <div className="absolute top-0 left-0 w-1/2 h-full" style={{ backgroundColor: fill(dayEntries[0].person_color) }} />
-                  <div className="absolute top-0 right-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[1].person_color) }} />
-                  <div className="absolute bottom-0 right-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[2].person_color) }} />
+                  <div className="absolute top-0 left-0 w-1/2 h-full" style={{ background: segFill(dayEntries[0]) }} />
+                  <div className="absolute top-0 right-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[1]) }} />
+                  <div className="absolute bottom-0 right-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[2]) }} />
                 </div>
               )}
               {dayEntries.length >= 4 && (
                 <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: 10 }}>
-                  <div className="absolute top-0 left-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[0].person_color) }} />
-                  <div className="absolute top-0 right-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[1].person_color) }} />
-                  <div className="absolute bottom-0 left-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[2].person_color) }} />
-                  <div className="absolute bottom-0 right-0 w-1/2 h-1/2" style={{ backgroundColor: fill(dayEntries[3].person_color) }} />
+                  <div className="absolute top-0 left-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[0]) }} />
+                  <div className="absolute top-0 right-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[1]) }} />
+                  <div className="absolute bottom-0 left-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[2]) }} />
+                  <div className="absolute bottom-0 right-0 w-1/2 h-1/2" style={{ background: segFill(dayEntries[3]) }} />
                 </div>
               )}
 

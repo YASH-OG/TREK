@@ -3799,6 +3799,28 @@ function runMigrations(db: Database.Database): void {
         CREATE INDEX IF NOT EXISTS idx_reservation_travelers_user ON reservation_travelers(user_id);
       `);
     },
+    // Comp/Flex days (#1074): a vacay entry is either a vacation day (counts toward
+    // the entitlement) or a comp/flex day (kind='comp', costs 0 — flextime/overtime
+    // offset). Orthogonal to fraction, so a half comp day is kind='comp' + fraction=0.5.
+    () => {
+      const hasKind = db.prepare("SELECT 1 FROM pragma_table_info('vacay_entries') WHERE name = 'kind'").get();
+      if (!hasKind) db.exec("ALTER TABLE vacay_entries ADD COLUMN kind TEXT NOT NULL DEFAULT 'vacation'");
+    },
+    // Configurable vacation year (#737): per-user leave-year window. 'calendar' keeps
+    // the Jan 1–Dec 31 default (unchanged for everyone); 'fiscal' starts on a fixed
+    // month/day; 'anniversary' starts on the month/day of the hire date. The year
+    // integer still names a period; the service resolves it to a [start,end) range.
+    () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS vacay_user_settings (
+          user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          year_type TEXT NOT NULL DEFAULT 'calendar',
+          year_start_month INTEGER NOT NULL DEFAULT 1,
+          year_start_day INTEGER NOT NULL DEFAULT 1,
+          hire_date TEXT
+        );
+      `);
+    },
   ];
 
   if (currentVersion < migrations.length) {

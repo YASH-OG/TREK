@@ -1,4 +1,4 @@
-import { Building2, ChevronLeft, ChevronRight, Eye, Minus, PenLine, Pencil, Plus, Settings2, Share2, ShieldCheck, Trash2, Unlink, UserPlus } from 'lucide-react'
+import { Building2, ChevronLeft, ChevronRight, Clock, Eye, Minus, PenLine, Pencil, Plus, Settings2, Share2, ShieldCheck, Trash2, Unlink, UserPlus } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import MSheet from '../../components/MSheet'
 import MIconBtn from '../../components/MIconBtn'
@@ -261,8 +261,20 @@ export default function MVacay() {
                 {t('vacay.modeCompany')}
               </button>
             )}
-            {/* Divider — the half-day switch modifies the selected person's logging, it isn't a mode. */}
+            {/* Divider — comp/flex and half-day modify the selected person's logging, they aren't modes. */}
             <span className="mx-[1px] h-5 w-px self-center bg-[color:var(--m-shbr)]" aria-hidden />
+            <button
+              type="button"
+              onClick={() => v.setCompDay(c => !c)}
+              aria-pressed={v.compDay}
+              aria-label={t('vacay.modeComp')}
+              title={t('vacay.modeCompHint')}
+              className={`flex h-9 w-9 flex-none items-center justify-center rounded-full ${
+                v.compDay ? 'bg-m-act text-m-actfg' : 'bg-[color:var(--m-ic)] text-m-muted'
+              }`}
+            >
+              <Clock size={16} strokeWidth={2.2} />
+            </button>
             <button
               type="button"
               onClick={() => v.setHalfDay(h => !h)}

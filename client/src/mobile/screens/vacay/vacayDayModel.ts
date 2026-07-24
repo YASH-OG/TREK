@@ -11,6 +11,10 @@ export interface DayVisual {
   boxShadow?: string
   // At least one person logged this day as a half day (#552) — the cell shows a ½ badge.
   half?: boolean
+  // Per-person fill segments for this day (#1074): each carries the person's tint and
+  // whether they logged a comp/flex day (hatched, kind='comp') vs. a vacation day
+  // (solid). Set only when someone is off; the cell renders overlays for 2+ people.
+  segments?: { color: string; comp: boolean }[]
   // Colours of the school-holiday calendars covering this day — drawn as a rounded
   // accent band under the number, on top of whatever fill the cell already has.
   school?: string[]
@@ -72,6 +76,11 @@ export function holidayInk(color: string): string {
   return `hsl(${hsl.h} ${s}% 42%)`
 }
 
+/** Diagonal hatch of a tint for comp/flex days (#1074), matching the desktop card. */
+export function hatchTint(color: string): string {
+  return `repeating-linear-gradient(45deg, ${color} 0 2.5px, transparent 2.5px 5px)`
+}
+
 /** Hard split background when several persons logged the same day. */
 export function splitBackground(colors: string[]): string {
   const n = colors.length
@@ -104,11 +113,14 @@ function baseDayVisual(dateStr: string, dayOfWeek: number, ctx: DayVisualContext
   }
   const entries = ctx.entryMap[dateStr]
   if (entries && entries.length > 0) {
-    const tints = entries.map(e => personTint(e.person_color || FALLBACK_PERSON_COLOR))
-    // The fill still shows WHO is off; half days (#552) keep it and add a corner
-    // dot, so a half day never looks like a two-person split. Only set `half` when
-    // true so full days keep their exact { background, numColor } shape.
-    const visual: DayVisual = { background: tints.length === 1 ? tints[0] : splitBackground(tints), numColor: '#101013' }
+    // The fill still shows WHO is off; half days (#552) keep it and add a corner dot.
+    // Comp/flex days (#1074) hatch their segment. 1 person fills the cell directly
+    // (solid or hatched); several render segment overlays, so the background stays
+    // transparent underneath them.
+    const segments = entries.map(e => ({ color: personTint(e.person_color || FALLBACK_PERSON_COLOR), comp: e.kind === 'comp' }))
+    const single = segments.length === 1
+    const background = single ? (segments[0].comp ? hatchTint(segments[0].color) : segments[0].color) : 'transparent'
+    const visual: DayVisual = { background, numColor: '#101013', segments }
     if (entries.some(e => (e.fraction ?? 1) === 0.5)) visual.half = true
     return withSchool(visual)
   }

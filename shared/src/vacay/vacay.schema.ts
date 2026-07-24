@@ -51,6 +51,9 @@ export const vacayToggleEntryRequestSchema = z.object({
   target_user_id: z.union([z.number(), z.string()]).optional(),
   // Half vacation days (#552): 0.5 logs a half day, 1 (or omitted) a full day.
   fraction: z.union([z.literal(0.5), z.literal(1)]).optional(),
+  // Leave type (#1074): 'comp' logs a flex/comp day (does not touch the
+  // entitlement), 'vacation' (or omitted) a regular vacation day.
+  kind: z.enum(['vacation', 'comp']).optional(),
 });
 export type VacayToggleEntryRequest = z.infer<typeof vacayToggleEntryRequestSchema>;
 
