@@ -147,6 +147,13 @@ export default function VacayMonthCard({
           if (hasEntries) numColor = '#fff'
           else if (publicHoliday) numColor = publicHoliday.color
           else if (weekend) numColor = 'var(--vg-ink3)'
+          // An all-comp cell is hatched, so the card surface shows through between
+          // the stripes and would swallow the white digit. A shadow carries the
+          // contrast instead, which keeps every logged day's number white (#1074).
+          // A mixed day still has a solid segment under the number and needs none.
+          const numShadow = hasEntries && dayEntries.every(e => e.kind === 'comp')
+            ? '0 1px 2px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.5)'
+            : undefined
 
           return (
             <div
@@ -223,6 +230,7 @@ export default function VacayMonthCard({
                 fontSize: 12,
                 fontWeight: (hasEntries || isToday) ? 700 : 500,
                 color: numColor,
+                textShadow: numShadow,
               }}>
                 {day}
               </span>

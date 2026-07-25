@@ -43,7 +43,7 @@ export default function MVacayMonth({
             className={`relative flex aspect-square items-center justify-center font-geist font-bold ${
               mini ? 'rounded-[6px] text-[0.53125rem]' : 'rounded-lg text-[0.75rem]'
             }`}
-            style={{ background: visual.background, color: visual.numColor, boxShadow: visual.boxShadow }}
+            style={{ background: visual.background, color: visual.numColor, boxShadow: visual.boxShadow, textShadow: visual.textShadow }}
           >
             {/* 2+ people: equal-width segment overlays, each solid (vacation) or hatched (comp) (#1074). */}
             {visual.segments && visual.segments.length > 1 && (
