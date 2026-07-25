@@ -34,6 +34,19 @@ export const vacayHandlers = [
     });
   }),
 
+  http.get('/api/addons/vacay/year-settings', () => {
+    return HttpResponse.json({
+      settings: { year_type: 'calendar', year_start_month: 1, year_start_day: 1, hire_date: null },
+    });
+  }),
+
+  http.put('/api/addons/vacay/year-settings', async ({ request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    return HttpResponse.json({
+      settings: { year_type: 'calendar', year_start_month: 1, year_start_day: 1, hire_date: null, ...body },
+    });
+  }),
+
   http.get('/api/addons/vacay/years', () => {
     return HttpResponse.json({ years: [2025, 2026] });
   }),

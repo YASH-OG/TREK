@@ -4,13 +4,15 @@ import { useAuthStore } from './authStore'
 import type { AxiosResponse } from 'axios'
 import type {
   VacayPlan, VacayUser, VacayEntry, VacayStat, HolidaysMap, HolidayInfo, VacayHolidayCalendar,
-  VacayShareOutgoing, VacayShareIncoming, SharedVacayCalendar,
+  VacayShareOutgoing, VacayShareIncoming, SharedVacayCalendar, VacayYearSettings,
 } from '../types'
 import { isSchoolHolidayCountrySupported } from '../vacay/schoolHolidayCountries'
+import { DEFAULT_YEAR_SETTINGS, currentPeriodYear, inGridWindow, windowCalendarYears } from '../vacay/yearWindow'
 import type {
   VacaySetColorRequest, VacayInviteRequest, VacayInviteActionRequest,
   VacayAddYearRequest, VacayToggleEntryRequest, VacayCompanyHolidayRequest,
   VacayUpdateStatsRequest, VacayShareRequest, VacayShareUpdateRequest,
+  VacayYearSettingsRequest,
 } from '@trek/shared'
 
 const ax = apiClient
@@ -91,6 +93,8 @@ interface VacayApi {
   updateShare: (shareId: number, hidden: boolean) => Promise<unknown>
   shareAvailableUsers: () => Promise<{ users: VacayUser[] }>
   getSharedCalendars: (year: number) => Promise<{ calendars: SharedVacayCalendar[] }>
+  getYearSettings: () => Promise<{ settings: VacayYearSettings }>
+  updateYearSettings: (data: VacayYearSettingsRequest) => Promise<{ settings: VacayYearSettings }>
 }
 
 const api: VacayApi = {
@@ -128,6 +132,8 @@ const api: VacayApi = {
   updateShare: (shareId, hidden) => ax.put(`/addons/vacay/shares/${shareId}`, { hidden } satisfies VacayShareUpdateRequest).then((r: AxiosResponse) => r.data),
   shareAvailableUsers: () => ax.get('/addons/vacay/shares/available-users').then((r: AxiosResponse) => r.data),
   getSharedCalendars: (year) => ax.get(`/addons/vacay/shares/calendars/${year}`).then((r: AxiosResponse) => r.data),
+  getYearSettings: () => ax.get('/addons/vacay/year-settings').then((r: AxiosResponse) => r.data),
+  updateYearSettings: (data) => ax.put('/addons/vacay/year-settings', data satisfies VacayYearSettingsRequest).then((r: AxiosResponse) => r.data),
 }
 
 function pushHolidayMarker(map: HolidaysMap, date: string, marker: HolidayInfo) {
@@ -136,7 +142,13 @@ function pushHolidayMarker(map: HolidaysMap, date: string, marker: HolidayInfo) 
     map[date] = [marker]
     return
   }
-  map[date] = Array.isArray(existing) ? [...existing, marker] : [existing, marker]
+  const markers = Array.isArray(existing) ? existing : [existing]
+  // A shifted leave year (#737) loads two calendar years, and a school break that
+  // straddles New Year comes back in both — keep one marker per day. The label is
+  // part of the identity: two calendars left on the same colour are still two
+  // calendars, and collapsing them would hide one from the tooltip.
+  if (markers.some(m => m.name === marker.name && m.color === marker.color && m.type === marker.type && m.label === marker.label)) return
+  map[date] = [...markers, marker]
 }
 
 function parseCalendarRegion(region: string): { country: string; subdivision: string | null; group: string | null } {
@@ -184,6 +196,9 @@ interface VacayState {
   outgoingShares: VacayShareOutgoing[]
   incomingShares: VacayShareIncoming[]
   sharedCalendars: SharedVacayCalendar[]
+  // The viewer's leave-year configuration (#737). Everything the grid renders and
+  // filters runs through this, so it loads before the first year is picked.
+  yearSettings: VacayYearSettings
 
   setSelectedYear: (year: number) => void
   setSelectedUserId: (id: number | null) => void
@@ -212,6 +227,8 @@ interface VacayState {
   shareWith: (userId: number) => Promise<void>
   removeShare: (shareId: number) => Promise<void>
   setShareHidden: (shareId: number, hidden: boolean) => Promise<void>
+  loadYearSettings: () => Promise<void>
+  updateYearSettings: (data: VacayYearSettingsRequest) => Promise<void>
   loadAll: () => Promise<void>
 }
 
@@ -233,6 +250,7 @@ export const useVacayStore = create<VacayState>((set, get) => ({
   outgoingShares: [],
   incomingShares: [],
   sharedCalendars: [],
+  yearSettings: DEFAULT_YEAR_SETTINGS,
 
   setSelectedYear: (year: number) => set({ selectedYear: year }),
   setSelectedUserId: (id: number | null) => set({ selectedUserId: id }),
@@ -293,6 +311,8 @@ export const useVacayStore = create<VacayState>((set, get) => ({
     set({ years: data.years })
     if (data.years.length > 0) {
       set({ selectedYear: data.years[data.years.length - 1] })
+    } else {
+      set({ selectedYear: currentPeriodYear(get().yearSettings) })
     }
   },
 
@@ -308,7 +328,7 @@ export const useVacayStore = create<VacayState>((set, get) => ({
     if (get().selectedYear === year) {
       updates.selectedYear = data.years.length > 0
         ? data.years[data.years.length - 1]
-        : new Date().getFullYear()
+        : currentPeriodYear(get().yearSettings)
     }
     set(updates)
     await get().loadStats()
@@ -391,30 +411,38 @@ export const useVacayStore = create<VacayState>((set, get) => ({
       return
     }
     const map: HolidaysMap = {}
+    const settings = get().yearSettings
+    // A shifted leave year (#737) spans two calendar years and the holiday APIs are
+    // per calendar year, so each one the window touches is fetched and the result
+    // clipped back to what the grid actually renders.
+    const calendarYears = windowCalendarYears(y, settings)
     for (const cal of enabledCalendars) {
       const { country, subdivision, group } = parseCalendarRegion(cal.region)
-      try {
-        if ((cal.type ?? 'public_holiday') === 'school_holiday') {
-          if (!isSchoolHolidayCountrySupported(country)) continue
-          const data = await api.getSchoolHolidays(y, country, subdivision, group)
-          data.forEach((h: VacaySchoolHolidayRaw) => {
-            if (!h.startDate) return
-            const name = schoolHolidayName(h)
-            datesBetween(h.startDate, h.endDate || h.startDate).filter(date => date.startsWith(`${y}-`)).forEach(date => {
-              pushHolidayMarker(map, date, { name, localName: name, color: cal.color, label: cal.label, type: 'school_holiday' })
+      for (const cy of calendarYears) {
+        try {
+          if ((cal.type ?? 'public_holiday') === 'school_holiday') {
+            if (!isSchoolHolidayCountrySupported(country)) continue
+            const data = await api.getSchoolHolidays(cy, country, subdivision, group)
+            data.forEach((h: VacaySchoolHolidayRaw) => {
+              if (!h.startDate) return
+              const name = schoolHolidayName(h)
+              datesBetween(h.startDate, h.endDate || h.startDate).filter(date => inGridWindow(date, y, settings)).forEach(date => {
+                pushHolidayMarker(map, date, { name, localName: name, color: cal.color, label: cal.label, type: 'school_holiday' })
+              })
             })
-          })
-        } else {
-          const data = await api.getHolidays(y, country)
-          const hasRegions = data.some((h: VacayHolidayRaw) => h.counties && h.counties.length > 0)
-          if (hasRegions && !subdivision) continue
-          data.forEach((h: VacayHolidayRaw) => {
-            if (h.global || !h.counties || (subdivision && h.counties.includes(subdivision))) {
-              pushHolidayMarker(map, h.date, { name: h.name, localName: h.localName, color: cal.color, label: cal.label, type: 'public_holiday' })
-            }
-          })
-        }
-      } catch { /* API error, skip */ }
+          } else {
+            const data = await api.getHolidays(cy, country)
+            const hasRegions = data.some((h: VacayHolidayRaw) => h.counties && h.counties.length > 0)
+            if (hasRegions && !subdivision) continue
+            data.forEach((h: VacayHolidayRaw) => {
+              if (!inGridWindow(h.date, y, settings)) return
+              if (h.global || !h.counties || (subdivision && h.counties.includes(subdivision))) {
+                pushHolidayMarker(map, h.date, { name: h.name, localName: h.localName, color: cal.color, label: cal.label, type: 'public_holiday' })
+              }
+            })
+          }
+        } catch { /* API error, skip */ }
+      }
     }
     set({ holidays: map })
   },
@@ -475,10 +503,29 @@ export const useVacayStore = create<VacayState>((set, get) => ({
     }
   },
 
+  loadYearSettings: async () => {
+    const data = await api.getYearSettings()
+    set({ yearSettings: data.settings ?? DEFAULT_YEAR_SETTINGS })
+  },
+
+  updateYearSettings: async (data: VacayYearSettingsRequest) => {
+    const res = await api.updateYearSettings(data)
+    set({ yearSettings: res.settings ?? DEFAULT_YEAR_SETTINGS })
+    // The window moved, so entries, holidays and the counted usage all shift with it.
+    const year = get().selectedYear
+    await get().loadEntries(year)
+    await get().loadStats(year)
+    await get().loadHolidays(year)
+    await get().loadSharedCalendars(year)
+  },
+
   loadAll: async () => {
     set({ loading: true })
     try {
       await get().loadPlan()
+      // The leave-year window decides which period is current, so it is resolved
+      // before the year list picks a default (#737).
+      await get().loadYearSettings()
       await get().loadYears()
       const year = get().selectedYear
       await get().loadEntries(year)

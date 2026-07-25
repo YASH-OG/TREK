@@ -327,6 +327,24 @@ export interface VacayStat {
   // Comp/flex days used this year (#1074) — informational, not deducted from the
   // entitlement. Absent on older server builds.
   comp_used?: number
+  // The leave-year window this row was computed over (#737), as YYYY-MM-DD.
+  // `window_end` is exclusive. Absent on older server builds.
+  window_start?: string
+  window_end?: string
+}
+
+export type VacayYearType = 'calendar' | 'fiscal' | 'anniversary'
+
+/**
+ * Per-user leave-year configuration (#737). 'calendar' is the unchanged Jan–Dec
+ * default, 'fiscal' starts on a fixed month/day, 'anniversary' on the month/day
+ * of the hire date.
+ */
+export interface VacayYearSettings {
+  year_type: VacayYearType
+  year_start_month: number
+  year_start_day: number
+  hire_date: string | null
 }
 
 export interface HolidayInfo {
