@@ -82,8 +82,16 @@ export class VacayService {
     return svc.deleteYear(planId, year, socketId);
   }
 
-  getEntries(planId: number, year: string) {
-    return svc.getEntries(planId, year);
+  getEntries(planId: number, year: string, viewerId?: number) {
+    return svc.getEntries(planId, year, viewerId);
+  }
+
+  getYearSettings(userId: number) {
+    return svc.getYearSettings(userId);
+  }
+
+  updateYearSettings(userId: number, data: Parameters<typeof svc.updateUserYearSettings>[1]) {
+    return svc.updateUserYearSettings(userId, data);
   }
 
   toggleEntry(userId: number, planId: number, date: string, fraction: unknown, kind: unknown, socketId: string | undefined) {

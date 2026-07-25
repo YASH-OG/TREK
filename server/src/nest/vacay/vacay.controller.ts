@@ -12,7 +12,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { vacayShareUpdateRequestSchema, type VacayShareUpdateRequest } from '@trek/shared';
+import {
+  vacayShareUpdateRequestSchema,
+  vacayYearSettingsRequestSchema,
+  type VacayShareUpdateRequest,
+  type VacayYearSettingsRequest,
+} from '@trek/shared';
 import type { User } from '../../types';
 import { VacayService } from './vacay.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -175,10 +180,25 @@ export class VacayController {
     return { years: this.vacay.deleteYear(planId, year, socketId) };
   }
 
+  @Get('year-settings')
+  yearSettings(@CurrentUser() user: User) {
+    return { settings: this.vacay.getYearSettings(user.id) };
+  }
+
+  @Put('year-settings')
+  updateYearSettings(
+    @CurrentUser() user: User,
+    @Body(new ZodValidationPipe(vacayYearSettingsRequestSchema)) body: VacayYearSettingsRequest,
+  ) {
+    return { settings: this.vacay.updateYearSettings(user.id, body) };
+  }
+
   @Get('entries/:year')
   entries(@CurrentUser() user: User, @Param('year') year: string) {
     const planId = this.vacay.getActivePlanId(user.id);
-    return this.vacay.getEntries(planId, year);
+    // Entries load over the caller's leave-year window (#737), so a shifted year
+    // returns both calendar halves the grid renders.
+    return this.vacay.getEntries(planId, year, user.id);
   }
 
   @Post('entries/toggle')

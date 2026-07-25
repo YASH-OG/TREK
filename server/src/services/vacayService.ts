@@ -124,7 +124,18 @@ export function getUserYearSettings(userId: number): VacayUserSettings | undefin
   return db.prepare('SELECT * FROM vacay_user_settings WHERE user_id = ?').get(userId) as VacayUserSettings | undefined;
 }
 
+/** A user's leave-year settings with the calendar defaults filled in (#737). */
+export function getYearSettings(userId: number): VacayUserSettings {
+  return getUserYearSettings(userId) ?? { user_id: userId, year_type: 'calendar', year_start_month: 1, year_start_day: 1, hire_date: null };
+}
+
 const pad2 = (n: number) => String(n).padStart(2, '0');
+
+/** Days a month has in every year — February caps at 28 so no boundary lands on a date a common year lacks. */
+function daysAlwaysInMonth(month: number): number {
+  if (month === 2) return 28;
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
 
 /** Coerce an arbitrary input to a supported leave-year type (#737). */
 function normalizeYearType(value: unknown): 'calendar' | 'fiscal' | 'anniversary' {
@@ -141,17 +152,78 @@ function normalizeYearType(value: unknown): 'calendar' | 'fiscal' | 'anniversary
  */
 export function resolveYearWindow(userId: number, year: number): { start: string; end: string } {
   const s = getUserYearSettings(userId);
-  if (!s || s.year_type === 'calendar') {
+  // 'anniversary' before a hire date is entered has nothing to anchor to, so it
+  // reads as the calendar default rather than borrowing a month left behind by a
+  // previous 'fiscal' setting — the client mirror resolves it the same way.
+  if (!s || s.year_type === 'calendar' || (s.year_type === 'anniversary' && !s.hire_date)) {
     return { start: `${year}-01-01`, end: `${year + 1}-01-01` };
   }
   let month = s.year_start_month || 1;
   let day = s.year_start_day || 1;
-  if (s.year_type === 'anniversary' && s.hire_date) {
-    const parts = s.hire_date.split('-');
+  if (s.year_type === 'anniversary') {
+    const parts = s.hire_date!.split('-');
     month = parseInt(parts[1], 10) || 1;
     day = parseInt(parts[2], 10) || 1;
   }
+  month = Math.min(12, Math.max(1, month));
+  // A Feb 29 hire date (or a stored Feb 30) would name a boundary that most years
+  // simply do not have, and a string comparison against it silently shifts the
+  // whole window. Clamp to a day every year really has.
+  day = Math.min(day, daysAlwaysInMonth(month));
   return { start: `${year}-${pad2(month)}-${pad2(day)}`, end: `${year + 1}-${pad2(month)}-${pad2(day)}` };
+}
+
+/**
+ * The [start, end) range a year identifier covers when read on someone's behalf
+ * (#737). Without a viewer — MCP resources, which are plan-scoped — it stays the
+ * plain calendar year, which is exactly what a 'calendar' user resolves to.
+ */
+function viewerWindow(year: number | string, viewerId?: number): { start: string; end: string } {
+  const y = typeof year === 'number' ? year : parseInt(year, 10);
+  // A non-numeric year matched nothing under the old date prefix; an empty range
+  // matches nothing either, so a bad parameter still yields an empty result.
+  if (!Number.isFinite(y)) return { start: '', end: '' };
+  if (viewerId == null) return { start: `${y}-01-01`, end: `${y + 1}-01-01` };
+  return resolveYearWindow(viewerId, y);
+}
+
+/**
+ * The range the calendar grid renders for a period: the twelve whole months the
+ * window starts in. For every window that begins on the 1st — all of 'calendar',
+ * and a fiscal year set to a month start — this is exactly the counting window.
+ *
+ * Known limitation for a start day past the 1st (UK's Apr 6, an Oct 16 hire date):
+ * the rendered range is month-aligned at both ends, so it is shifted rather than
+ * widened. The first few days of the start month are drawn but belong to the
+ * previous period, and the equally few days at the far end count here but fall
+ * outside the twelve cards. Entitlement arithmetic stays day-exact either way;
+ * only the grid's edges are approximate. Rendering a 13th month card would fix it
+ * and was deliberately not taken.
+ */
+function viewerGridWindow(year: number | string, viewerId?: number): { start: string; end: string } {
+  const w = viewerWindow(year, viewerId);
+  if (!w.start) return w;
+  return { start: `${w.start.slice(0, 7)}-01`, end: `${w.end.slice(0, 7)}-01` };
+}
+
+/**
+ * The calendar year a window's last day falls in. `end` is exclusive, so a window
+ * ending on Jan 1 (the calendar default) stops inside the previous year.
+ */
+function windowEndYear(end: string): number {
+  const y = parseInt(end.slice(0, 4), 10);
+  return end.endsWith('-01-01') ? y - 1 : y;
+}
+
+/**
+ * The period identifier whose window contains `date` for this user (#737). With a
+ * window that starts later in the year, today still belongs to the period named
+ * after the previous calendar year — 'calendar' users always get today's year.
+ */
+export function currentPeriodYear(userId: number, date = new Date()): number {
+  const y = date.getFullYear();
+  const iso = `${y}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+  return iso < resolveYearWindow(userId, y).start ? y - 1 : y;
 }
 
 /** Upsert a user's leave-year settings (#737). */
@@ -191,7 +263,9 @@ export function getOwnPlan(userId: number): VacayPlan {
   if (!plan) {
     db.prepare('INSERT INTO vacay_plans (owner_id) VALUES (?)').run(userId);
     plan = db.prepare('SELECT * FROM vacay_plans WHERE owner_id = ?').get(userId) as VacayPlan;
-    const yr = new Date().getFullYear();
+    // Seed the period today falls into — with a shifted leave year (#737) that is
+    // not necessarily the current calendar year.
+    const yr = currentPeriodYear(userId);
     db.prepare('INSERT OR IGNORE INTO vacay_years (plan_id, year) VALUES (?, ?)').run(plan.id, yr);
     db.prepare('INSERT OR IGNORE INTO vacay_user_years (user_id, plan_id, year, vacation_days, carried_over) VALUES (?, ?, ?, 30, 0)').run(userId, plan.id, yr);
     db.prepare('INSERT OR IGNORE INTO vacay_user_colors (user_id, plan_id, color) VALUES (?, ?, ?)').run(userId, plan.id, '#6366f1');
@@ -290,10 +364,19 @@ export async function applyHolidayCalendars(planId: number): Promise<void> {
   const calendars = db.prepare("SELECT * FROM vacay_holiday_calendars WHERE plan_id = ? AND type = 'public_holiday' ORDER BY sort_order, id").all(planId) as VacayHolidayCalendar[];
   if (calendars.length === 0) return;
   const years = db.prepare('SELECT year FROM vacay_years WHERE plan_id = ?').all(planId) as { year: number }[];
+  // A shifted leave year (#737) runs into the next calendar year, so collect the
+  // calendar years the members' windows actually touch — not just the period ids.
+  // With everyone on 'calendar' this is the same set as before.
+  const members = getPlanUsers(planId);
+  const calendarYears = new Set<number>();
+  for (const { year } of years) {
+    calendarYears.add(year);
+    for (const m of members) calendarYears.add(windowEndYear(resolveYearWindow(m.id, year).end));
+  }
   for (const cal of calendars) {
     const country = cal.region.split('-')[0];
     const region = cal.region.includes('-') ? cal.region : null;
-    for (const { year } of years) {
+    for (const year of calendarYears) {
       try {
         const cacheKey = `${year}-${country}`;
         let holidays = holidayCache.get(cacheKey)?.data as Holiday[] | undefined;
@@ -780,6 +863,9 @@ export function getShareAvailableUsers(userId: number) {
 }
 
 export function getSharedCalendars(viewerId: number, year: string) {
+  // Shared calendars are drawn into the viewer's grid, so they load over the
+  // viewer's range (#737) even when the owner's leave year is shaped differently.
+  const { start, end } = viewerGridWindow(year, viewerId);
   const shares = db.prepare(`
     SELECT s.id, s.owner_id, s.hidden, u.username
     FROM vacay_shares s JOIN users u ON s.owner_id = u.id
@@ -796,13 +882,13 @@ export function getSharedCalendars(viewerId: number, year: string) {
       return { share_id: s.id, owner_id: s.owner_id, owner_name: s.username, color, hidden: !!s.hidden, entries: [], companyHolidays: [] };
     }
     const entries = db.prepare(
-      'SELECT date, fraction, kind FROM vacay_entries WHERE plan_id = ? AND user_id = ? AND date LIKE ? ORDER BY date'
-    ).all(plan.id, s.owner_id, `${year}-%`);
+      'SELECT date, fraction, kind FROM vacay_entries WHERE plan_id = ? AND user_id = ? AND date >= ? AND date < ? ORDER BY date'
+    ).all(plan.id, s.owner_id, start, end);
     // Company holidays are plan-wide context for "when is this person off";
     // only exposed while the owner has the feature enabled, and dates only —
     // the note text may be authored by plan members who aren't part of the share.
     const companyHolidays = plan.company_holidays_enabled
-      ? db.prepare('SELECT date FROM vacay_company_holidays WHERE plan_id = ? AND date LIKE ? ORDER BY date').all(plan.id, `${year}-%`)
+      ? db.prepare('SELECT date FROM vacay_company_holidays WHERE plan_id = ? AND date >= ? AND date < ? ORDER BY date').all(plan.id, start, end)
       : [];
     return { share_id: s.id, owner_id: s.owner_id, owner_name: s.username, color, hidden: !!s.hidden, entries, companyHolidays };
   });
@@ -842,8 +928,26 @@ export function addYear(planId: number, year: number, socketId: string | undefin
 
 export function deleteYear(planId: number, year: number, socketId: string | undefined): number[] {
   db.prepare('DELETE FROM vacay_years WHERE plan_id = ? AND year = ?').run(planId, year);
-  db.prepare("DELETE FROM vacay_entries WHERE plan_id = ? AND date LIKE ?").run(planId, `${year}-%`);
-  db.prepare("DELETE FROM vacay_company_holidays WHERE plan_id = ? AND date LIKE ?").run(planId, `${year}-%`);
+  // Members can be on differently shaped leave years (#737), so entries go per
+  // author over that author's period rather than by one shared year prefix.
+  // Authors are read off the entries themselves so orphans are cleared too.
+  const authors = db.prepare('SELECT DISTINCT user_id FROM vacay_entries WHERE plan_id = ?').all(planId) as { user_id: number }[];
+  for (const { user_id } of authors) {
+    const { start, end } = resolveYearWindow(user_id, year);
+    db.prepare('DELETE FROM vacay_entries WHERE plan_id = ? AND user_id = ? AND date >= ? AND date < ?').run(planId, user_id, start, end);
+  }
+  // Company holidays belong to the plan, not to a member, and every member sees
+  // them over their own window. In a fused plan with mixed year types the safe
+  // range is therefore the intersection of all member windows — anything outside
+  // it still sits inside a period somebody else has not deleted.
+  const owner = db.prepare('SELECT owner_id FROM vacay_plans WHERE id = ?').get(planId) as { owner_id: number } | undefined;
+  const members = getPlanUsers(planId);
+  const windows = (members.length > 0 ? members.map(m => m.id) : [owner?.owner_id ?? -1]).map(id => resolveYearWindow(id, year));
+  const holidayStart = windows.reduce((a, w) => (w.start > a ? w.start : a), windows[0].start);
+  const holidayEnd = windows.reduce((a, w) => (w.end < a ? w.end : a), windows[0].end);
+  if (holidayStart < holidayEnd) {
+    db.prepare('DELETE FROM vacay_company_holidays WHERE plan_id = ? AND date >= ? AND date < ?').run(planId, holidayStart, holidayEnd);
+  }
   db.prepare('DELETE FROM vacay_user_years WHERE plan_id = ? AND year = ?').run(planId, year);
 
   // Recalculate carry-over for year+1 if it exists, since its previous year has changed
@@ -876,15 +980,21 @@ export function deleteYear(planId: number, year: number, socketId: string | unde
 // Entries
 // ---------------------------------------------------------------------------
 
-export function getEntries(planId: number, year: string) {
+/**
+ * Entries and company holidays for the grid. The range is the viewer's leave-year
+ * window (#737) — a shifted year spans two calendar years, so the old year prefix
+ * would drop the second half. For 'calendar' the range is Jan 1 – Dec 31 again.
+ */
+export function getEntries(planId: number, year: string, viewerId?: number) {
+  const { start, end } = viewerGridWindow(year, viewerId);
   const entries = db.prepare(`
     SELECT e.*, u.username as person_name, COALESCE(c.color, '#6366f1') as person_color
     FROM vacay_entries e
     JOIN users u ON e.user_id = u.id
     LEFT JOIN vacay_user_colors c ON c.user_id = e.user_id AND c.plan_id = e.plan_id
-    WHERE e.plan_id = ? AND e.date LIKE ?
-  `).all(planId, `${year}-%`);
-  const companyHolidays = db.prepare("SELECT * FROM vacay_company_holidays WHERE plan_id = ? AND date LIKE ?").all(planId, `${year}-%`);
+    WHERE e.plan_id = ? AND e.date >= ? AND e.date < ?
+  `).all(planId, start, end);
+  const companyHolidays = db.prepare('SELECT * FROM vacay_company_holidays WHERE plan_id = ? AND date >= ? AND date < ?').all(planId, start, end);
   return { entries, companyHolidays };
 }
 
@@ -941,6 +1051,9 @@ export function getStats(planId: number, year: number) {
     const total = vacationDays + carriedOver;
     const remaining = total - used;
     const colorRow = db.prepare('SELECT color FROM vacay_user_colors WHERE user_id = ? AND plan_id = ?').get(u.id, planId) as { color: string } | undefined;
+    // The period this row was computed over (#737) — the UI labels the window and
+    // the carry-over source with it instead of assuming Jan–Dec / year − 1.
+    const window = resolveYearWindow(u.id, year);
 
     const nextYearExists = db.prepare('SELECT id FROM vacay_years WHERE plan_id = ? AND year = ?').get(planId, year + 1);
     if (nextYearExists && carryOverEnabled) {
@@ -955,6 +1068,7 @@ export function getStats(planId: number, year: number) {
       user_id: u.id, person_name: u.username, person_color: colorRow?.color || '#6366f1',
       year, vacation_days: vacationDays, carried_over: carriedOver,
       total_available: total, used, remaining, comp_used: compUsed,
+      window_start: window.start, window_end: window.end,
     };
   });
 }

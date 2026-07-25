@@ -237,7 +237,7 @@ export function registerVacayTools(server: McpServer, userId: number, scopes: st
       },
       async ({ year }) => {
         const planId = getActivePlanId(userId);
-        const entries = getVacayEntries(planId, String(year));
+        const entries = getVacayEntries(planId, String(year), userId);
         return ok({ entries });
       }
     );

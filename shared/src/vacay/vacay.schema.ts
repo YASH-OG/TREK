@@ -57,6 +57,17 @@ export const vacayToggleEntryRequestSchema = z.object({
 });
 export type VacayToggleEntryRequest = z.infer<typeof vacayToggleEntryRequestSchema>;
 
+// Configurable vacation year (#737): the leave-year window is per user, not per
+// plan. 'calendar' is the unchanged Jan–Dec default, 'fiscal' starts on the given
+// month/day, 'anniversary' on the month/day of the hire date.
+export const vacayYearSettingsRequestSchema = z.object({
+  year_type: z.enum(['calendar', 'fiscal', 'anniversary']),
+  year_start_month: z.number().int().min(1).max(12).optional(),
+  year_start_day: z.number().int().min(1).max(31).optional(),
+  hire_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+});
+export type VacayYearSettingsRequest = z.infer<typeof vacayYearSettingsRequestSchema>;
+
 export const vacayCompanyHolidayRequestSchema = z.object({
   date: z.string(),
   note: z.string().optional(),
