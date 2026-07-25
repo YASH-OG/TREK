@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { ArrowRightLeft, Building2, Calendar, CalendarX, ChevronDown, Globe, GraduationCap, Plus, Trash2, Unlink, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { ArrowRightLeft, Building2, Calendar, CalendarRange, CalendarX, ChevronDown, Globe, GraduationCap, Plus, Trash2, Unlink, X } from 'lucide-react'
 import MSheet from '../../components/MSheet'
 import MIconBtn from '../../components/MIconBtn'
 import MToggle from '../../components/MToggle'
@@ -9,8 +9,9 @@ import { useToast } from '../../../components/shared/Toast'
 import apiClient from '../../../api/client'
 import { fetchRegionOptions, fetchSchoolHolidayRegionOptions } from '../../../components/Vacay/holidayRegions'
 import { SCHOOL_HOLIDAY_COUNTRY_CONFIG } from '../../../vacay/schoolHolidayCountries'
+import { windowMonths } from '../../../vacay/yearWindow'
 import { FALLBACK_PERSON_COLOR } from './vacayDayModel'
-import type { VacayHolidayCalendar } from '../../../types'
+import type { VacayHolidayCalendar, VacayYearSettings } from '../../../types'
 
 const CALENDAR_COLORS = ['#fecaca', '#fed7aa', '#fde68a', '#bbf7d0', '#a5f3fc', '#c7d2fe', '#e9d5ff', '#fda4af']
 
@@ -153,6 +154,10 @@ export default function MVacaySettingsSheet({ open, onClose }: MVacaySettingsShe
         </div>
         <div className="my-2 h-px bg-[color:var(--m-rowbr)]" />
 
+        {/* Vacation year (#737) — personal, unlike the plan settings around it */}
+        <YearTypeRows />
+        <div className="my-2 h-px bg-[color:var(--m-rowbr)]" />
+
         {/* Company holidays */}
         <div className="flex items-start gap-[11px] py-3">
           <Building2 size={17} strokeWidth={2} className="mt-[1px] flex-none text-m-muted" />
@@ -277,6 +282,109 @@ export default function MVacaySettingsSheet({ open, onClose }: MVacaySettingsShe
       </div>
     </MSheet>
   )
+}
+
+/**
+ * Leave-year type (#737): calendar (Jan–Dec), fiscal (fixed month/day) or
+ * anniversary (the hire date's month/day). Unlike everything else in this sheet
+ * it is a per-user setting, so fused members each keep their own.
+ */
+function YearTypeRows() {
+  const { t, locale } = useTranslation()
+  const { yearSettings, updateYearSettings, selectedYear } = useVacayStore()
+  const type = yearSettings.year_type
+
+  const monthOptions: Option[] = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(locale, { month: 'long' })
+    return Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: fmt.format(new Date(2026, i, 1)) }))
+  }, [locale])
+
+  const save = (patch: Partial<VacayYearSettings>) => {
+    const next = { ...yearSettings, ...patch }
+    updateYearSettings({
+      year_type: next.year_type,
+      year_start_month: next.year_start_month,
+      year_start_day: Math.min(next.year_start_day, monthDayCap(next.year_start_month)),
+      hire_date: next.hire_date,
+    })
+  }
+
+  const months = windowMonths(selectedYear, yearSettings)
+  const fmtShort = new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' })
+  const windowLabel = `${fmtShort.format(new Date(months[0].year, months[0].month, 1))} – ${fmtShort.format(new Date(months[11].year, months[11].month, 1))}`
+
+  return (
+    <>
+      <div className="flex items-start gap-[11px] py-3">
+        <CalendarRange size={17} strokeWidth={2} className="mt-[1px] flex-none text-m-muted" />
+        <div className="flex-1">
+          <div className="text-[0.84375rem] font-bold">{t('vacay.yearType')}</div>
+          <div className="font-geist text-[0.65625rem] text-m-muted">{t('vacay.yearTypeHint')}</div>
+        </div>
+      </div>
+      <div className="ml-7 flex gap-1">
+        {([
+          { value: 'calendar', label: t('vacay.yearTypeCalendar') },
+          { value: 'fiscal', label: t('vacay.yearTypeFiscal') },
+          { value: 'anniversary', label: t('vacay.yearTypeAnniversary') },
+        ] as const).map(({ value, label }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => save({ year_type: value })}
+            className={`flex-1 rounded-[10px] px-1 py-[7px] text-center text-[0.65625rem] font-semibold ${
+              type === value ? 'bg-m-act text-m-actfg' : 'border border-[color:var(--m-rowbr)] bg-[color:var(--m-ic)] text-m-ink'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {type === 'fiscal' && (
+        <div className="ml-7 flex gap-2">
+          <span className="min-w-0 flex-1">
+            <SelectRow
+              value={String(yearSettings.year_start_month)}
+              placeholder={t('vacay.yearStartMonth')}
+              options={monthOptions}
+              onChange={v => save({ year_start_month: parseInt(v, 10) })}
+            />
+          </span>
+          <span className="w-[86px] flex-none">
+            <SelectRow
+              value={String(yearSettings.year_start_day)}
+              placeholder={t('vacay.yearStartDay')}
+              options={Array.from({ length: monthDayCap(yearSettings.year_start_month) }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))}
+              onChange={v => save({ year_start_day: parseInt(v, 10) })}
+            />
+          </span>
+        </div>
+      )}
+
+      {type === 'anniversary' && (
+        <div className="ml-7">
+          <input
+            type="date"
+            value={yearSettings.hire_date || ''}
+            onChange={e => save({ hire_date: e.target.value || null })}
+            aria-label={t('vacay.hireDate')}
+            className="mt-[7px] w-full rounded-[10px] border border-[color:var(--m-rowbr)] bg-[color:var(--m-sheetop)] px-[11px] py-[9px] font-[inherit] text-[0.78125rem] font-semibold text-m-ink outline-none"
+          />
+        </div>
+      )}
+
+      <div className="ml-7 mt-[6px] font-geist text-[0.625rem] text-m-faint">
+        {t('vacay.yearWindow', { year: selectedYear, window: windowLabel })}
+      </div>
+    </>
+  )
+}
+
+/** Days a month always has — February caps at 28 so a start date never goes missing in a common year. */
+function monthDayCap(month: number): number {
+  if (month === 2) return 28
+  return [4, 6, 9, 11].includes(month) ? 30 : 31
 }
 
 /** Styled native select in the sheet's row look (label + chevron). */

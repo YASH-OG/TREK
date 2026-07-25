@@ -1,4 +1,4 @@
-import { Building2, ChevronLeft, ChevronRight, Clock, Eye, Minus, PenLine, Pencil, Plus, Settings2, Share2, ShieldCheck, Trash2, Unlink, UserPlus } from 'lucide-react'
+import { Building2, ChevronLeft, ChevronRight, Eye, Minus, PenLine, Pencil, Plus, Settings2, Share2, ShieldCheck, Trash2, Unlink, UserPlus } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import MSheet from '../../components/MSheet'
 import MIconBtn from '../../components/MIconBtn'
@@ -84,7 +84,13 @@ export default function MVacay() {
                 </span>
                 {stat.carried_over > 0 && (
                   <span className="font-geist text-[0.5625rem] font-bold text-[color:var(--m-st-pending)]">
-                    +{stat.carried_over} {t('vacay.carriedOver', { year: v.selectedYear - 1 })}
+                    +{stat.carried_over} {v.isShiftedYear ? t('vacay.carriedOverPrevPeriod') : t('vacay.carriedOver', { year: v.selectedYear - 1 })}
+                  </span>
+                )}
+                {/* Comp / flex days (#1074) sit outside used/left — they cost nothing. */}
+                {(stat.comp_used ?? 0) > 0 && (
+                  <span className="font-geist text-[0.5625rem] font-bold text-m-muted">
+                    {t('vacay.compUsedCount', { count: stat.comp_used })}
                   </span>
                 )}
                 <span className="font-geist text-[0.5625rem] font-extrabold" style={{ color: leftColor }}>
@@ -166,12 +172,14 @@ export default function MVacay() {
         {/* Year grid */}
         {!edit && (
           <div className="grid grid-cols-2 gap-[10px]">
-            {Array.from({ length: 12 }, (_, m) => (
-              <div key={m} className="rounded-2xl border border-[color:var(--m-rowbr)] bg-[color:var(--m-sheetop)] p-2">
-                <div className="mb-1 text-[0.75rem] font-extrabold capitalize">{v.monthNamesShort[m]}</div>
+            {/* Twelve months from the window start (#737) — Jan–Dec on a calendar
+                year, Jul–Jun once the leave year is shifted. */}
+            {v.months.map(({ year, month }, slot) => (
+              <div key={`${year}-${month}`} className="rounded-2xl border border-[color:var(--m-rowbr)] bg-[color:var(--m-sheetop)] p-2">
+                <div className="mb-1 text-[0.75rem] font-extrabold capitalize">{v.monthNamesShort[slot]}</div>
                 <MVacayMonth
-                  year={v.selectedYear}
-                  month={m}
+                  year={year}
+                  month={month}
                   variant="mini"
                   weekStart={v.weekStart}
                   ctx={v.dayCtx}
@@ -189,13 +197,13 @@ export default function MVacay() {
           <>
             <div className="mb-[10px] rounded-2xl border border-[color:var(--m-gbr)] bg-[color:var(--m-glass)] p-2">
               <div className="grid grid-cols-6 gap-[5px]">
-                {v.monthNamesShort.map((name, m) => (
+                {v.monthNamesShort.map((name, slot) => (
                   <button
-                    key={m}
+                    key={slot}
                     type="button"
-                    onClick={() => v.setMonth(m)}
+                    onClick={() => v.setMonthSlot(slot)}
                     className={`whitespace-nowrap rounded-[11px] py-[7px] text-center text-[0.71875rem] font-bold capitalize ${
-                      m === v.month
+                      slot === v.monthSlot
                         ? 'bg-m-act text-m-actfg'
                         : 'border border-[color:var(--m-rowbr)] bg-[color:var(--m-ic)] text-m-ink'
                     }`}
@@ -221,8 +229,8 @@ export default function MVacay() {
                 ))}
               </div>
               <MVacayMonth
-                year={v.selectedYear}
-                month={v.month}
+                year={v.activeMonth.year}
+                month={v.activeMonth.month}
                 variant="full"
                 weekStart={v.weekStart}
                 ctx={v.dayCtx}
@@ -273,7 +281,16 @@ export default function MVacay() {
                 v.compDay ? 'bg-m-act text-m-actfg' : 'bg-[color:var(--m-ic)] text-m-muted'
               }`}
             >
-              <Clock size={16} strokeWidth={2.2} />
+              {/* Hatched disc in the person's colour — the marker a comp day gets
+                  in the grid (#1074), rather than an abstract clock. */}
+              <span
+                className="rounded-full"
+                style={{
+                  width: 15, height: 15,
+                  background: `repeating-linear-gradient(45deg, ${v.selectedColor} 0 2px, transparent 2px 4px)`,
+                  boxShadow: `inset 0 0 0 1.5px ${v.selectedColor}`,
+                }}
+              />
             </button>
             <button
               type="button"
@@ -281,11 +298,12 @@ export default function MVacay() {
               aria-pressed={v.halfDay}
               aria-label={t('vacay.modeHalf')}
               title={t('vacay.modeHalfHint')}
-              className={`flex h-9 w-9 flex-none items-center justify-center rounded-full text-[0.9375rem] font-extrabold leading-none ${
+              className={`flex h-9 w-9 flex-none items-center justify-center rounded-full ${
                 v.halfDay ? 'bg-m-act text-m-actfg' : 'bg-[color:var(--m-ic)] text-m-muted'
               }`}
             >
-              ½
+              {/* The orange corner dot a half day carries in the grid (#552). */}
+              <span className="rounded-full bg-[#f97316]" style={{ width: 15, height: 15 }} />
             </button>
           </div>
         </div>

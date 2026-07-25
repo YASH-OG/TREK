@@ -7,6 +7,7 @@ import { useTranslation } from '../../../i18n'
 import { useToast } from '../../../components/shared/Toast'
 import { tripsApi } from '../../../api/client'
 import { isWeekend } from '../../../components/Vacay/holidays'
+import { currentPeriodYear, inGridWindow, windowMonths } from '../../../vacay/yearWindow'
 import { FALLBACK_PERSON_COLOR, localDateStr, type DayVisualContext } from './vacayDayModel'
 import { getApiErrorMessage, type Trip } from '../../../types'
 
@@ -33,12 +34,14 @@ export function useMVacay() {
     entries, companyHolidays, stats, users, holidays,
     selectedUserId, setSelectedUserId, isFused,
     toggleEntry, toggleCompanyHoliday, updateVacationDays,
-    incomingShares, sharedCalendars, setShareHidden,
+    incomingShares, sharedCalendars, setShareHidden, yearSettings,
   } = useVacayStore()
   const currentUser = useAuthStore(s => s.user)
 
   const [view, setView] = useState<MVacayView>('grid')
-  const [month, setMonth] = useState(() => new Date().getMonth())
+  // Index into the window's twelve months (#737), not a calendar month — with a
+  // fiscal year starting in July, slot 0 is July and slot 11 is the following June.
+  const [monthSlot, setMonthSlot] = useState(0)
   const [mode, setMode] = useState<MVacayMode>('vacation')
   // Half-day modifier: when on, taps log the selected person's day as 0.5 (#552).
   const [halfDay, setHalfDay] = useState(false)
@@ -46,6 +49,11 @@ export function useMVacay() {
   const [compDay, setCompDay] = useState(false)
   const [sheet, setSheet] = useState<MVacaySheet>(null)
   const [tripDates, setTripDates] = useState<Set<string>>(new Set())
+
+  // The leave-year window's shape as a primitive. loadAll() hands back a fresh
+  // (deep-equal) settings object every refresh, so effects key on this instead of
+  // the object and stop re-firing when nothing about the window actually changed.
+  const windowShape = `${yearSettings.year_type}|${yearSettings.year_start_month}|${yearSettings.year_start_day}|${yearSettings.hire_date}`
 
   // Default the active person to the current user (same as the persons panel).
   useEffect(() => {
@@ -64,16 +72,18 @@ export function useMVacay() {
           const start = new Date(trip.start_date + 'T00:00:00')
           const end = new Date(trip.end_date + 'T00:00:00')
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            if (d.getFullYear() === selectedYear) {
-              dates.add(localDateStr(d.getFullYear(), d.getMonth(), d.getDate()))
-            }
+            // The grid covers the leave-year window (#737), which is only the
+            // calendar year while the window is unshifted.
+            const date = localDateStr(d.getFullYear(), d.getMonth(), d.getDate())
+            if (inGridWindow(date, selectedYear, yearSettings)) dates.add(date)
           }
         }
         if (!cancelled) setTripDates(dates)
       } catch { /* ignore */ }
     })()
     return () => { cancelled = true }
-  }, [selectedYear])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYear, windowShape])
 
   const blockWeekends = plan?.block_weekends !== false
   const companyHolidaysEnabled = plan?.company_holidays_enabled !== false
@@ -118,14 +128,30 @@ export function useMVacay() {
     todayStr, entryMap, companyHolidaySet, companyHolidaysEnabled, holidays, weekendDays, sharedMap,
   }), [todayStr, entryMap, companyHolidaySet, companyHolidaysEnabled, holidays, weekendDays, sharedMap])
 
+  // The twelve months the window spans, in display order — Jan–Dec for a calendar
+  // year, Jul–Jun for a fiscal one starting in July (#737).
+  const months = useMemo(() => windowMonths(selectedYear, yearSettings), [selectedYear, yearSettings])
+  const activeMonth = months[monthSlot] ?? months[0]
+
+  // Land on the month the user is actually in. Keyed on the window *shape*, not on
+  // the settings object: loadAll() replaces that object with a deep-equal copy on
+  // every refresh, and re-running here would throw away the month the user picked.
+  useEffect(() => {
+    const now = new Date()
+    const idx = windowMonths(currentPeriodYear(yearSettings, now), yearSettings)
+      .findIndex(m => m.year === now.getFullYear() && m.month === now.getMonth())
+    setMonthSlot(idx >= 0 ? idx : 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowShape])
+
   const monthNamesShort = useMemo(() => {
     const fmt = new Intl.DateTimeFormat(locale, { month: 'short' })
-    return Array.from({ length: 12 }, (_, i) => fmt.format(new Date(2026, i, 1)))
-  }, [locale])
+    return months.map(({ year, month }) => fmt.format(new Date(year, month, 1)))
+  }, [locale, months])
 
   const monthNameLong = useMemo(
-    () => new Intl.DateTimeFormat(locale, { month: 'long' }).format(new Date(selectedYear, month, 1)),
-    [locale, selectedYear, month],
+    () => new Intl.DateTimeFormat(locale, { month: 'long' }).format(new Date(activeMonth.year, activeMonth.month, 1)),
+    [locale, activeMonth],
   )
 
   const selectedUser = users.find(u => u.id === selectedUserId)
@@ -188,8 +214,10 @@ export function useMVacay() {
     else { await handleAddNextYear(); setSelectedYear(selectedYear + 1) }
   }, [years, selectedYear, setSelectedYear, handleAddNextYear])
 
-  const prevMonth = useCallback(() => setMonth(m => (m + 11) % 12), [])
-  const nextMonth = useCallback(() => setMonth(m => (m + 1) % 12), [])
+  // Wrapping happens on the slot, so a shifted window rolls Dec → Jan inside the
+  // period instead of jumping back to January of the calendar year.
+  const prevMonth = useCallback(() => setMonthSlot(s => (s + 11) % 12), [])
+  const nextMonth = useCallback(() => setMonthSlot(s => (s + 1) % 12), [])
   const toggleView = useCallback(() => setView(v => (v === 'grid' ? 'edit' : 'grid')), [])
   const goBack = useCallback(() => navigate('/dashboard'), [navigate])
 
@@ -200,7 +228,8 @@ export function useMVacay() {
     users, isFused, currentUser,
     incomingInvites, acceptInvite, declineInvite,
     incomingShares, toggleShareHidden,
-    view, month, mode, halfDay, setHalfDay, compDay, setCompDay, sheet, setSheet, setMode, setMonth,
+    view, months, monthSlot, activeMonth, isShiftedYear: yearSettings.year_type !== 'calendar',
+    mode, halfDay, setHalfDay, compDay, setCompDay, sheet, setSheet, setMode, setMonthSlot,
     tripDates, tripDotColor,
     blockWeekends, companyHolidaysEnabled, holidaysEnabled, weekStart, weekendDays,
     dayCtx, monthNamesShort, monthNameLong,

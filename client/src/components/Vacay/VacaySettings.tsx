@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { type LucideIcon, CalendarOff, AlertCircle, Building2, Unlink, ArrowRightLeft, Globe, Plus, Trash2, CalendarDays, GraduationCap } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { type LucideIcon, CalendarOff, AlertCircle, Building2, Unlink, ArrowRightLeft, Globe, Plus, Trash2, CalendarDays, CalendarRange, GraduationCap } from 'lucide-react'
 import { useVacayStore } from '../../store/vacayStore'
 import { getIntlLanguage, useTranslation } from '../../i18n'
 import { useToast } from '../shared/Toast'
@@ -7,7 +7,8 @@ import CustomSelect from '../shared/CustomSelect'
 import apiClient from '../../api/client'
 import { fetchRegionOptions, fetchSchoolHolidayRegionOptions } from './holidayRegions'
 import { SCHOOL_HOLIDAY_COUNTRY_CONFIG } from '../../vacay/schoolHolidayCountries'
-import type { VacayHolidayCalendar } from '../../types'
+import { windowMonths } from '../../vacay/yearWindow'
+import type { VacayHolidayCalendar, VacayYearSettings } from '../../types'
 
 interface VacaySettingsProps {
   onClose: () => void
@@ -133,6 +134,9 @@ export default function VacaySettings({ onClose }: VacaySettingsProps) {
         value={plan.carry_over_enabled}
         onChange={() => toggle('carry_over_enabled')}
       />
+
+      {/* Vacation year (#737) — personal, unlike the plan settings above it */}
+      <YearTypePicker />
         </div>
 
         {/* ── Column 2 · holidays ── */}
@@ -290,6 +294,117 @@ export default function VacaySettings({ onClose }: VacaySettingsProps) {
       )}
     </div>
   )
+}
+
+// ── Leave-year type (#737) ────────────────────────────────────────────────────
+/**
+ * Per-user leave year: calendar (Jan–Dec), fiscal (a fixed month/day) or
+ * anniversary (the hire date's month/day). This is the one setting in this panel
+ * that belongs to the person rather than the plan, so fused members can each keep
+ * their own — the grid then follows whoever is looking at it.
+ */
+function YearTypePicker() {
+  const { t, locale } = useTranslation()
+  const { yearSettings, updateYearSettings, selectedYear } = useVacayStore()
+  const type = yearSettings.year_type
+
+  const monthNames = useMemo(() => {
+    const fmt = new Intl.DateTimeFormat(locale, { month: 'long' })
+    return Array.from({ length: 12 }, (_, i) => fmt.format(new Date(2026, i, 1)))
+  }, [locale])
+
+  // February caps at 28 so a window start never lands on a date some years lack.
+  const maxDay = daysInMonth(yearSettings.year_start_month)
+
+  const save = (patch: Partial<VacayYearSettings>) => {
+    const next = { ...yearSettings, ...patch }
+    updateYearSettings({
+      year_type: next.year_type,
+      year_start_month: next.year_start_month,
+      year_start_day: Math.min(next.year_start_day, daysInMonth(next.year_start_month)),
+      hire_date: next.hire_date,
+    })
+  }
+
+  const months = windowMonths(selectedYear, yearSettings)
+  const shortMonth = new Intl.DateTimeFormat(locale, { month: 'short', year: 'numeric' })
+  const windowLabel = `${shortMonth.format(new Date(months[0].year, months[0].month, 1))} – ${shortMonth.format(new Date(months[11].year, months[11].month, 1))}`
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <CalendarRange size={16} className="text-content-muted" style={{ flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <span className="text-sm font-medium text-content">{t('vacay.yearType')}</span>
+          <p className="text-xs mt-0.5 text-content-faint">{t('vacay.yearTypeHint')}</p>
+        </div>
+      </div>
+      <div style={{ paddingLeft: 36, marginTop: 8 }} className="flex flex-wrap gap-1.5">
+        {([
+          { value: 'calendar', label: t('vacay.yearTypeCalendar') },
+          { value: 'fiscal', label: t('vacay.yearTypeFiscal') },
+          { value: 'anniversary', label: t('vacay.yearTypeAnniversary') },
+        ] as const).map(({ value, label }) => (
+          <button key={value} onClick={() => save({ year_type: value })}
+            style={{
+              padding: '4px 10px', borderRadius: 8, fontSize: 'calc(12px * var(--fs-scale-body, 1))', fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'inherit', border: '1px solid', transition: 'all 0.12s',
+              background: type === value ? 'var(--text-primary)' : 'var(--bg-card)',
+              borderColor: type === value ? 'var(--text-primary)' : 'var(--border-primary)',
+              color: type === value ? 'var(--bg-primary)' : 'var(--text-muted)',
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {type === 'fiscal' && (
+        <div style={{ paddingLeft: 36, marginTop: 8 }} className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <CustomSelect
+              value={String(yearSettings.year_start_month)}
+              onChange={v => save({ year_start_month: parseInt(String(v), 10) })}
+              options={monthNames.map((label, i) => ({ value: String(i + 1), label }))}
+              placeholder={t('vacay.yearStartMonth')}
+            />
+          </div>
+          <div className="w-[92px] shrink-0">
+            <CustomSelect
+              value={String(yearSettings.year_start_day)}
+              onChange={v => save({ year_start_day: parseInt(String(v), 10) })}
+              options={Array.from({ length: maxDay }, (_, i) => ({ value: String(i + 1), label: String(i + 1) }))}
+              placeholder={t('vacay.yearStartDay')}
+            />
+          </div>
+        </div>
+      )}
+
+      {type === 'anniversary' && (
+        <div style={{ paddingLeft: 36, marginTop: 8 }}>
+          <input
+            type="date"
+            value={yearSettings.hire_date || ''}
+            onChange={e => save({ hire_date: e.target.value || null })}
+            aria-label={t('vacay.hireDate')}
+            style={{ width: '100%', fontSize: 'calc(13px * var(--fs-scale-body, 1))', fontWeight: 500, padding: '8px 14px', borderRadius: 10, background: 'var(--bg-input)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', fontFamily: 'inherit', outline: 'none' }}
+          />
+          {!yearSettings.hire_date && (
+            <p className="text-[11px] mt-1 text-content-faint">{t('vacay.hireDateHint')}</p>
+          )}
+        </div>
+      )}
+
+      <p className="text-[11px] mt-2 text-content-faint" style={{ paddingLeft: 36 }}>
+        {t('vacay.yearWindow', { year: selectedYear, window: windowLabel })}
+      </p>
+    </div>
+  )
+}
+
+/** Days a month can always offer — February caps at 28 so no window start is skipped in a common year. */
+function daysInMonth(month: number): number {
+  if (month === 2) return 28
+  return [4, 6, 9, 11].includes(month) ? 30 : 31
 }
 
 interface SettingToggleProps {

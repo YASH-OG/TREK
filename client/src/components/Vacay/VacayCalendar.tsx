@@ -2,10 +2,11 @@ import { useMemo, useState, useCallback, useEffect } from 'react'
 import { useVacayStore } from '../../store/vacayStore'
 import { useTranslation } from '../../i18n'
 import { isWeekend } from './holidays'
+import { inGridWindow, windowMonths } from '../../vacay/yearWindow'
 import { tripsApi } from '../../api/client'
 import VacayMonthCard from './VacayMonthCard'
 import type { VacayEntry } from '../../types'
-import { Building2, MousePointer2, Clock } from 'lucide-react'
+import { Building2, MousePointer2 } from 'lucide-react'
 
 type VacayMode = 'vacation' | 'company'
 type HoverTip = { date: string; top: number; left: number }
@@ -13,7 +14,7 @@ export type SharedDayMark = { color: string; name: string; fraction?: number; co
 
 export default function VacayCalendar() {
   const { t, locale } = useTranslation()
-  const { selectedYear, selectedUserId, entries, companyHolidays, toggleEntry, toggleCompanyHoliday, plan, users, holidays, sharedCalendars } = useVacayStore()
+  const { selectedYear, selectedUserId, entries, companyHolidays, toggleEntry, toggleCompanyHoliday, plan, users, holidays, sharedCalendars, yearSettings } = useVacayStore()
   const [mode, setMode] = useState<VacayMode>('vacation')
   // Half-day is a per-person modifier on the vacation action, not a mode: with it
   // on, clicking a day logs (or converts) it as a 0.5 day for the selected person.
@@ -36,17 +37,17 @@ export default function VacayCalendar() {
           const start = new Date(trip.start_date + 'T00:00:00')
           const end = new Date(trip.end_date + 'T00:00:00')
           for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const y = d.getFullYear()
-            if (y === selectedYear) {
-              dates.add(`${y}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`)
-            }
+            // Keep the days the grid shows, which is the leave-year window (#737)
+            // rather than the calendar year once the window is shifted.
+            const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+            if (inGridWindow(date, selectedYear, yearSettings)) dates.add(date)
           }
         }
         if (!cancelled) setTripDates(dates)
       } catch { /* ignore */ }
     })()
     return () => { cancelled = true }
-  }, [selectedYear])
+  }, [selectedYear, yearSettings])
 
   const companyHolidaySet = useMemo(() => {
     const s = new Set<string>()
@@ -106,6 +107,9 @@ export default function VacayCalendar() {
   }, [])
 
   const selectedUser = users.find(u => u.id === selectedUserId)
+  // The toolbar modifiers preview what a click will put on the day, so the comp
+  // hatch carries the selected person's colour just like the grid segment does.
+  const markerColor = selectedUser?.color || '#6366f1'
   const tipEntries = tip ? entryMap[tip.date] : undefined
   const tipShared = tip ? sharedMap[tip.date] : undefined
   const tipHolidayRaw = tip ? holidays[tip.date] : undefined
@@ -122,11 +126,13 @@ export default function VacayCalendar() {
   return (
     <div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[18px]" style={{ paddingBottom: 'calc(var(--bottom-nav-h, 0px) + 80px)' }}>
-        {Array.from({ length: 12 }, (_, i) => (
+        {/* Twelve months from the window start (#737), rolling over the calendar
+            year when the leave year is shifted — Jul 2026 – Jun 2027 and so on. */}
+        {windowMonths(selectedYear, yearSettings).map(({ year, month }) => (
           <VacayMonthCard
-            key={i}
-            year={selectedYear}
-            month={i}
+            key={`${year}-${month}`}
+            year={year}
+            month={month}
             holidays={holidays}
             companyHolidaySet={companyHolidaySet}
             companyHolidaysEnabled={companyHolidaysEnabled}
@@ -234,7 +240,14 @@ export default function VacayCalendar() {
             style={compDay
               ? { background: 'var(--vg-ink)', color: 'var(--vg-bg)' }
               : { background: 'transparent', color: 'var(--vg-ink3)' }}>
-            <Clock size={13} />
+            {/* A hatched disc in the person's colour — the same diagonal fill a comp
+                day gets in the grid (#1074), so the toolbar previews the marker. */}
+            <span className="rounded-full shrink-0"
+              style={{
+                width: 12, height: 12,
+                background: `repeating-linear-gradient(45deg, ${markerColor} 0 2px, transparent 2px 4px)`,
+                boxShadow: `inset 0 0 0 1px ${markerColor}`,
+              }} aria-hidden />
             {t('vacay.modeComp')}
           </button>
 
@@ -246,12 +259,10 @@ export default function VacayCalendar() {
             style={halfDay
               ? { background: 'var(--vg-ink)', color: 'var(--vg-bg)' }
               : { background: 'transparent', color: 'var(--vg-ink3)' }}>
-            <span className="flex items-center justify-center rounded-full shrink-0 transition-colors"
-              style={{
-                width: 15, height: 15, fontSize: 10, fontWeight: 800, lineHeight: 1,
-                background: halfDay ? 'var(--vg-bg)' : 'color-mix(in srgb, var(--vg-ink3) 22%, transparent)',
-                color: halfDay ? 'var(--vg-ink)' : 'var(--vg-ink2)',
-              }} aria-hidden>½</span>
+            {/* The same orange dot a half day carries in the grid (#552) — the
+                toolbar showing the marker you are about to place reads quicker
+                than a ½ glyph that appears nowhere on the calendar. */}
+            <span className="rounded-full shrink-0 bg-[#f97316]" style={{ width: 12, height: 12 }} aria-hidden />
             {t('vacay.modeHalf')}
           </button>
         </div>
