@@ -137,13 +137,42 @@ describe('VacayController (parity with the legacy /api/addons/vacay route)', () 
     it('toggles for the caller', () => {
       const toggleEntry = vi.fn().mockReturnValue({ action: 'added' });
       expect(makeController({ ...planBase, toggleEntry }).toggleEntry(user, { date: '2026-07-01' }, 'sock')).toEqual({ action: 'added' });
-      expect(toggleEntry).toHaveBeenCalledWith(1, 10, '2026-07-01', undefined, 'sock');
+      expect(toggleEntry).toHaveBeenCalledWith(1, 10, '2026-07-01', undefined, undefined, 'sock');
     });
 
     it('forwards the half-day fraction (#552)', () => {
       const toggleEntry = vi.fn().mockReturnValue({ action: 'added', fraction: 0.5 });
       makeController({ ...planBase, toggleEntry }).toggleEntry(user, { date: '2026-07-01', fraction: 0.5 }, 'sock');
-      expect(toggleEntry).toHaveBeenCalledWith(1, 10, '2026-07-01', 0.5, 'sock');
+      expect(toggleEntry).toHaveBeenCalledWith(1, 10, '2026-07-01', 0.5, undefined, 'sock');
+    });
+
+    it('forwards the comp/flex leave type (#1074)', () => {
+      const toggleEntry = vi.fn().mockReturnValue({ action: 'added', kind: 'comp' });
+      makeController({ ...planBase, toggleEntry }).toggleEntry(user, { date: '2026-07-01', kind: 'comp' }, 'sock');
+      expect(toggleEntry).toHaveBeenCalledWith(1, 10, '2026-07-01', undefined, 'comp', 'sock');
+    });
+
+    it('GET reads entries over the caller window (#737)', () => {
+      const getEntries = vi.fn().mockReturnValue({ entries: [], companyHolidays: [] });
+      makeController({ ...planBase, getEntries }).entries(user, '2026');
+      expect(getEntries).toHaveBeenCalledWith(10, '2026', 1);
+    });
+  });
+
+  describe('year settings (#737)', () => {
+    it('GET wraps the caller settings', () => {
+      const getYearSettings = vi.fn().mockReturnValue({ year_type: 'calendar' });
+      expect(makeController({ getYearSettings }).yearSettings(user)).toEqual({ settings: { year_type: 'calendar' } });
+      expect(getYearSettings).toHaveBeenCalledWith(1);
+    });
+
+    it('PUT saves for the caller and returns the stored settings', () => {
+      const updateYearSettings = vi.fn().mockReturnValue({ year_type: 'fiscal', year_start_month: 7, year_start_day: 1 });
+      const body = { year_type: 'fiscal' as const, year_start_month: 7, year_start_day: 1 };
+      expect(makeController({ updateYearSettings }).updateYearSettings(user, body)).toEqual({
+        settings: { year_type: 'fiscal', year_start_month: 7, year_start_day: 1 },
+      });
+      expect(updateYearSettings).toHaveBeenCalledWith(1, body);
     });
   });
 

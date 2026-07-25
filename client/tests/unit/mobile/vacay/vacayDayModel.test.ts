@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayVisual, monthLead, personTint, splitBackground, type DayVisualContext } from '../../../../src/mobile/screens/vacay/vacayDayModel';
+import { dayVisual, hatchTint, monthLead, personTint, type DayVisualContext } from '../../../../src/mobile/screens/vacay/vacayDayModel';
 
 // FE-MOB-VACAY-001 onwards
 
@@ -44,11 +44,13 @@ describe('vacayDayModel', () => {
     // ...but not when company holidays are disabled.
     expect(dayVisual('2026-07-15', 3, { ...notToday, companyHolidaysEnabled: false }).numColor).toBe('#101013');
 
-    // Logged person: pastel tint of the person color, hard dark digit.
+    // Logged person: pastel tint of the person color, hard dark digit. One person
+    // fills the cell directly and still reports the segment (#1074).
     const logged = ctx({ todayStr: '2026-01-01', entryMap: { '2026-07-15': [entry] } });
     expect(dayVisual('2026-07-15', 3, logged)).toEqual({
       background: personTint('#EC4899'),
       numColor: '#101013',
+      segments: [{ color: personTint('#EC4899'), comp: false }],
     });
 
     // Public holiday: calendar color fill.
@@ -66,7 +68,7 @@ describe('vacayDayModel', () => {
     });
   });
 
-  it('FE-MOB-VACAY-002: splits logged days evenly and offsets month starts by week start', () => {
+  it('FE-MOB-VACAY-002: splits logged days into segments and offsets month starts by week start', () => {
     const two = ctx({
       todayStr: '2026-01-01',
       entryMap: {
@@ -76,10 +78,42 @@ describe('vacayDayModel', () => {
         ],
       },
     });
-    expect(dayVisual('2026-07-15', 3, two).background).toBe(
-      splitBackground([personTint('#EC4899'), personTint('#2FA9A0')]),
-    );
-    expect(splitBackground(['a', 'b'])).toBe('linear-gradient(105deg,a 0% 50%,b 50% 100%)');
+    // Several persons render as segment overlays (#1074), so the cell itself stays
+    // transparent underneath them and the split lives in `segments`.
+    const shared = dayVisual('2026-07-15', 3, two);
+    expect(shared.background).toBe('transparent');
+    expect(shared.segments).toEqual([
+      { color: personTint('#EC4899'), comp: false },
+      { color: personTint('#2FA9A0'), comp: false },
+    ]);
+
+    // A comp/flex day marks its own segment without touching the other one.
+    const mixed = ctx({
+      todayStr: '2026-01-01',
+      entryMap: {
+        '2026-07-15': [
+          { date: '2026-07-15', user_id: 1, person_color: '#EC4899', kind: 'comp' as const },
+          { date: '2026-07-15', user_id: 2, person_color: '#2FA9A0' },
+        ],
+      },
+    });
+    expect(dayVisual('2026-07-15', 3, mixed).segments).toEqual([
+      { color: personTint('#EC4899'), comp: true },
+      { color: personTint('#2FA9A0'), comp: false },
+    ]);
+
+    // A single comp day hatches the whole cell instead.
+    const soloComp = ctx({
+      todayStr: '2026-01-01',
+      entryMap: { '2026-07-15': [{ date: '2026-07-15', user_id: 1, person_color: '#EC4899', kind: 'comp' as const }] },
+    });
+    expect(dayVisual('2026-07-15', 3, soloComp).background).toBe(hatchTint(personTint('#EC4899')));
+    // The hatch lets the screen through, so the digit keeps its colour and gains a
+    // light shadow to stay readable; a day with a solid segment needs none.
+    expect(dayVisual('2026-07-15', 3, soloComp).numColor).toBe('#101013');
+    expect(dayVisual('2026-07-15', 3, soloComp).textShadow).toBeTruthy();
+    expect(dayVisual('2026-07-15', 3, mixed).numColor).toBe('#101013');
+    expect(dayVisual('2026-07-15', 3, mixed).textShadow).toBeUndefined();
 
     // July 2026 starts on a Wednesday: 2 leading cells Monday-first, 3 Sunday-first.
     expect(monthLead(2026, 6, 1)).toBe(2);

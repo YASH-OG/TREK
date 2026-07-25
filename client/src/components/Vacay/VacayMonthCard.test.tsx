@@ -150,18 +150,87 @@ describe('VacayMonthCard', () => {
     expect(getFirstWeekLabels()).toEqual(['', '', '', '1', '2', '3', '4'])
   })
 
-  it('FE-COMP-VACAYMONTHCARD-011: Two vacation entries fill the cell with a split gradient', () => {
+  it('FE-COMP-VACAYMONTHCARD-011: Two vacation entries split the cell into two clipped halves', () => {
     const props = {
       ...baseProps,
       entryMap: {
-        '2025-01-15': [{ date: '2025-01-15', user_id: 1, person_color: '#6366f1' }, { date: '2025-01-15', user_id: 1, person_color: '#f43f5e' }],
+        '2025-01-15': [{ date: '2025-01-15', user_id: 1, person_color: '#6366f1' }, { date: '2025-01-15', user_id: 2, person_color: '#f43f5e' }],
       },
     }
     render(<VacayMonthCard {...props} />)
     const daySpan = screen.getByText('15')
     const cell = daySpan.closest('div') as HTMLElement
-    // The split gradient is the cell background itself (glass facelift).
-    expect(cell.style.background).toContain('linear-gradient')
+    // Each half is its own clipped overlay so it can be solid or hatched on its
+    // own (#1074) — the diagonal is no longer one gradient on the cell itself.
+    // jsdom normalises the hex inside color-mix() to rgb().
+    const halves = [...cell.querySelectorAll<HTMLElement>('div')].filter(d => d.style.clipPath)
+    expect(halves).toHaveLength(2)
+    expect(halves[0].style.background).toContain('rgb(99, 102, 241)')
+    expect(halves[1].style.background).toContain('rgb(244, 63, 94)')
+    expect(halves.map(h => h.style.background).join()).not.toContain('repeating-linear-gradient')
+  })
+
+  it('FE-COMP-VACAYMONTHCARD-011a: a comp day hatches only its own half of the split (#1074)', () => {
+    const props = {
+      ...baseProps,
+      entryMap: {
+        '2025-01-15': [
+          { date: '2025-01-15', user_id: 1, person_color: '#6366f1', kind: 'comp' as const },
+          { date: '2025-01-15', user_id: 2, person_color: '#f43f5e' },
+        ],
+      },
+    }
+    render(<VacayMonthCard {...props} />)
+    const cell = screen.getByText('15').closest('div') as HTMLElement
+    const halves = [...cell.querySelectorAll<HTMLElement>('div')].filter(d => d.style.clipPath)
+    expect(halves[0].style.background).toContain('repeating-linear-gradient')
+    expect(halves[1].style.background).not.toContain('repeating-linear-gradient')
+  })
+
+  it('FE-COMP-VACAYMONTHCARD-011b: a single comp day hatches the whole cell (#1074)', () => {
+    const props = {
+      ...baseProps,
+      entryMap: {
+        '2025-01-15': [{ date: '2025-01-15', user_id: 1, person_color: '#6366f1', kind: 'comp' as const }],
+      },
+    }
+    render(<VacayMonthCard {...props} />)
+    const cell = screen.getByText('15').closest('div') as HTMLElement
+    expect(cell.style.background).toContain('repeating-linear-gradient')
+  })
+
+  it('FE-COMP-VACAYMONTHCARD-011c: an all-comp day keeps the white digit and gains a shadow to carry it (#1074)', () => {
+    const props = {
+      ...baseProps,
+      entryMap: {
+        '2025-01-15': [{ date: '2025-01-15', user_id: 1, person_color: '#6366f1', kind: 'comp' as const }],
+        // A solid vacation fill needs no shadow — the fill itself is the contrast.
+        '2025-01-16': [{ date: '2025-01-16', user_id: 1, person_color: '#6366f1' }],
+      },
+    }
+    render(<VacayMonthCard {...props} />)
+    const comp = screen.getByText('15')
+    const vacation = screen.getByText('16')
+    expect(comp).toHaveStyle({ color: '#fff' })
+    // Only that the shadow is there — its exact strength is a design value.
+    expect(comp.style.textShadow).not.toBe('')
+    expect(vacation).toHaveStyle({ color: '#fff' })
+    expect(vacation.style.textShadow).toBe('')
+  })
+
+  it('FE-COMP-VACAYMONTHCARD-011d: a mixed comp/vacation day needs no shadow — a solid half sits under the digit (#1074)', () => {
+    const props = {
+      ...baseProps,
+      entryMap: {
+        '2025-01-15': [
+          { date: '2025-01-15', user_id: 1, person_color: '#6366f1', kind: 'comp' as const },
+          { date: '2025-01-15', user_id: 2, person_color: '#f43f5e' },
+        ],
+      },
+    }
+    render(<VacayMonthCard {...props} />)
+    expect(screen.getByText('15')).toHaveStyle({ color: '#fff' })
+    expect(screen.getByText('15').style.textShadow).toBe('')
   })
 
   it('FE-COMP-VACAYMONTHCARD-012: Four vacation entries render quadrant overlay', () => {

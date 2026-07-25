@@ -8,6 +8,9 @@ export const FALLBACK_PERSON_COLOR = '#6366f1'
 export interface DayVisual {
   background: string
   numColor: string
+  // Set on hatched (comp/flex) cells, where the screen shows through between the
+  // stripes and the digit needs its own contrast (#1074).
+  textShadow?: string
   boxShadow?: string
   // At least one person logged this day as a half day (#552) — the cell shows a ½ badge.
   half?: boolean
@@ -81,15 +84,6 @@ export function hatchTint(color: string): string {
   return `repeating-linear-gradient(45deg, ${color} 0 2.5px, transparent 2.5px 5px)`
 }
 
-/** Hard split background when several persons logged the same day. */
-export function splitBackground(colors: string[]): string {
-  const n = colors.length
-  const stops = colors
-    .map((c, i) => `${c} ${Math.round((i * 100) / n)}% ${Math.round(((i + 1) * 100) / n)}%`)
-    .join(',')
-  return `linear-gradient(105deg,${stops})`
-}
-
 /**
  * Day-cell color matrix, priority top-down: today ring > company holiday >
  * logged persons (pastel, split for several) > public holiday > weekend >
@@ -120,7 +114,13 @@ function baseDayVisual(dateStr: string, dayOfWeek: number, ctx: DayVisualContext
     const segments = entries.map(e => ({ color: personTint(e.person_color || FALLBACK_PERSON_COLOR), comp: e.kind === 'comp' }))
     const single = segments.length === 1
     const background = single ? (segments[0].comp ? hatchTint(segments[0].color) : segments[0].color) : 'transparent'
+    // The pastel fills are theme-independent surfaces, so every logged day keeps
+    // the same hard dark digit. An all-comp day is hatched, and the screen shows
+    // through between its stripes — a light shadow carries the contrast there so
+    // the digit survives dark mode without changing colour (#1074).
+    const allComp = segments.every(s => s.comp)
     const visual: DayVisual = { background, numColor: '#101013', segments }
+    if (allComp) visual.textShadow = '0 1px 2px rgba(255,255,255,0.9), 0 0 3px rgba(255,255,255,0.6)'
     if (entries.some(e => (e.fraction ?? 1) === 0.5)) visual.half = true
     return withSchool(visual)
   }

@@ -7,14 +7,16 @@ import { useVacayStore } from '../../store/vacayStore'
 import VacayCalendar from './VacayCalendar'
 
 vi.mock('./VacayMonthCard', () => ({
-  default: ({ month, onCellClick }: any) => (
-    <div data-testid={`month-card-${month}`}>
+  default: ({ year, month, onCellClick }: any) => (
+    <div data-testid={`month-card-${month}`} data-year={year}>
       <button onClick={() => onCellClick(`2025-01-${String(month + 1).padStart(2, '0')}`)}>
         click-{month}
       </button>
     </div>
   ),
 }))
+
+const fiscalJuly = { year_type: 'fiscal' as const, year_start_month: 7, year_start_day: 1, hire_date: null }
 
 const basePlan = {
   id: 1,
@@ -45,6 +47,51 @@ describe('VacayCalendar', () => {
     render(<VacayCalendar />)
 
     expect(screen.getAllByTestId(/^month-card-/)).toHaveLength(12)
+  })
+
+  it('FE-COMP-VACAYCALENDAR-001a: renders January to December of the selected year by default', () => {
+    seedStore(useVacayStore, {
+      selectedYear: 2025,
+      entries: [],
+      companyHolidays: [],
+      holidays: {},
+      plan: basePlan,
+      users: [],
+      selectedUserId: null,
+    })
+
+    render(<VacayCalendar />)
+
+    const cards = screen.getAllByTestId(/^month-card-/)
+    expect(cards[0]).toHaveAttribute('data-testid', 'month-card-0')
+    expect(cards[0]).toHaveAttribute('data-year', '2025')
+    expect(cards[11]).toHaveAttribute('data-testid', 'month-card-11')
+    expect(cards[11]).toHaveAttribute('data-year', '2025')
+  })
+
+  it('FE-COMP-VACAYCALENDAR-001b: rolls the grid over the calendar year for a fiscal window (#737)', () => {
+    seedStore(useVacayStore, {
+      selectedYear: 2026,
+      entries: [],
+      companyHolidays: [],
+      holidays: {},
+      plan: basePlan,
+      users: [],
+      selectedUserId: null,
+      yearSettings: fiscalJuly,
+    })
+
+    render(<VacayCalendar />)
+
+    const cards = screen.getAllByTestId(/^month-card-/)
+    expect(cards).toHaveLength(12)
+    // Jul 2026 first, Jan 2027 in the middle, Jun 2027 last.
+    expect(cards[0]).toHaveAttribute('data-testid', 'month-card-6')
+    expect(cards[0]).toHaveAttribute('data-year', '2026')
+    expect(cards[6]).toHaveAttribute('data-testid', 'month-card-0')
+    expect(cards[6]).toHaveAttribute('data-year', '2027')
+    expect(cards[11]).toHaveAttribute('data-testid', 'month-card-5')
+    expect(cards[11]).toHaveAttribute('data-year', '2027')
   })
 
   it('FE-COMP-VACAYCALENDAR-002: shows vacation mode button by default with username', () => {
@@ -97,10 +144,10 @@ describe('VacayCalendar', () => {
 
     render(<VacayCalendar />)
 
-    // Vacation + half-day buttons stay; only the company button is hidden.
+    // Vacation + the comp and half-day modifiers stay; only the company button is hidden.
     const buttons = screen.getAllByRole('button')
     const toolbarButtons = buttons.filter(b => !b.textContent?.startsWith('click-'))
-    expect(toolbarButtons).toHaveLength(2)
+    expect(toolbarButtons).toHaveLength(3)
   })
 
   it('FE-COMP-VACAYCALENDAR-005: switching to company mode highlights company button', async () => {
@@ -149,7 +196,7 @@ describe('VacayCalendar', () => {
     // Click the first month card cell button (month 0 → date '2025-01-01')
     await user.click(screen.getByText('click-0'))
 
-    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 1)
+    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 1, 'vacation')
   })
 
   it('FE-COMP-VACAYCALENDAR-006b: half-day mode logs the day as 0.5', async () => {
@@ -169,13 +216,58 @@ describe('VacayCalendar', () => {
 
     render(<VacayCalendar />)
 
-    // toolbarButtons[0] = vacation, [1] = half day
-    const buttons = screen.getAllByRole('button')
-    const toolbarButtons = buttons.filter(b => !b.textContent?.startsWith('click-'))
-    await user.click(toolbarButtons[1])
+    // Comp and half-day are both modifiers in the toolbar — pick by name, not position.
+    await user.click(screen.getByRole('button', { name: 'Half day' }))
     await user.click(screen.getByText('click-0'))
 
-    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 0.5)
+    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 0.5, 'vacation')
+  })
+
+  it('FE-COMP-VACAYCALENDAR-006c: the comp modifier logs the day as a comp/flex day (#1074)', async () => {
+    const user = userEvent.setup()
+    const toggleEntry = vi.fn().mockResolvedValue(undefined)
+
+    seedStore(useVacayStore, {
+      selectedYear: 2025,
+      entries: [],
+      companyHolidays: [],
+      holidays: {},
+      plan: { ...basePlan, block_weekends: false, company_holidays_enabled: false },
+      users: [],
+      selectedUserId: 42,
+      toggleEntry,
+    })
+
+    render(<VacayCalendar />)
+
+    await user.click(screen.getByRole('button', { name: 'Comp / Flex' }))
+    await user.click(screen.getByText('click-0'))
+
+    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 1, 'comp')
+  })
+
+  it('FE-COMP-VACAYCALENDAR-006d: comp and half-day stack into a half comp day (#1074)', async () => {
+    const user = userEvent.setup()
+    const toggleEntry = vi.fn().mockResolvedValue(undefined)
+
+    seedStore(useVacayStore, {
+      selectedYear: 2025,
+      entries: [],
+      companyHolidays: [],
+      holidays: {},
+      plan: { ...basePlan, block_weekends: false, company_holidays_enabled: false },
+      users: [],
+      selectedUserId: 42,
+      toggleEntry,
+    })
+
+    render(<VacayCalendar />)
+
+    await user.click(screen.getByRole('button', { name: 'Comp / Flex' }))
+    await user.click(screen.getByRole('button', { name: 'Half day' }))
+    await user.click(screen.getByText('click-0'))
+
+    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', 42, 0.5, 'comp')
   })
 
   it('FE-COMP-VACAYCALENDAR-007: cell click on public holiday toggles vacation entry', async () => {
@@ -198,7 +290,7 @@ describe('VacayCalendar', () => {
     // Month 0, button emits '2025-01-01' which is a holiday — should still toggle vacation
     await user.click(screen.getByText('click-0'))
 
-    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', undefined, 1)
+    expect(toggleEntry).toHaveBeenCalledWith('2025-01-01', undefined, 1, 'vacation')
   })
 
   it('FE-COMP-VACAYCALENDAR-008: cell click in company mode calls toggleCompanyHoliday', async () => {
