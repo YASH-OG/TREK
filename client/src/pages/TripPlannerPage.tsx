@@ -52,6 +52,7 @@ import { useTripPlanner } from './tripPlanner/useTripPlanner'
 import { usePoiExplore } from '../components/Map/usePoiExplore'
 import PoiCategoryPill from '../components/Map/PoiCategoryPill'
 import { useIsPhone } from '../mobile/useIsPhone'
+import { useTouchDragBridge } from '../hooks/useTouchDragBridge'
 import MTripShell from '../mobile/screens/trip/MTripShell'
 
 function ListsContainer({ tripId, packingItems, todoItems }: { tripId: number; packingItems: PackingItem[]; todoItems: TodoItem[] }) {
@@ -227,6 +228,11 @@ function TripPlannerPageDesktop(): React.ReactElement | null {
     mapTileUrl, fontStyle, splashDone,
   } = useTripPlanner()
 
+  // Tablets run this very layout but cannot start an HTML5 drag with a finger,
+  // so a long press stands in for one (#1616). Only where the pointer is
+  // coarse — a hybrid laptop loads drag-drop-touch instead.
+  useTouchDragBridge(isTouch && !isMobile)
+
   const poi = usePoiExplore()
   const [glMap, setGlMap] = useState<CompassMap | null>(null)
   const poiPillEnabled = useSettingsStore(s => s.settings.map_poi_pill_enabled) !== false
@@ -379,7 +385,6 @@ function TripPlannerPageDesktop(): React.ReactElement | null {
               }}>
                 <DayPlanSidebar
                   isMobile={isMobile}
-                  isTouch={isTouch}
                   tripId={tripId}
                   trip={trip}
                   days={days}
@@ -491,7 +496,6 @@ function TripPlannerPageDesktop(): React.ReactElement | null {
                     pushUndo={pushUndo}
                     days={days}
                     isMobile={false}
-                    isTouch={isTouch}
                   />
                 </div>
               </div>

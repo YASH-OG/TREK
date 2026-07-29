@@ -8,6 +8,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useTripStore, type TripStoreState } from '../../store/tripStore'
 import { useSettingsStore } from '../../store/settingsStore'
 import { usePluginStore } from '../../store/pluginStore'
+import { installTouchDragBridge } from '../../utils/touchDragBridge'
 import { resetAllStores, seedStore } from '../../../tests/helpers/store'
 import {
   buildUser, buildTrip, buildDay, buildPlace, buildCategory, buildAssignment, buildDayNote, buildReservation,
@@ -2953,16 +2954,29 @@ describe('DayPlanSidebar', () => {
     expect(document.querySelectorAll('.dp-row')).toHaveLength(0)
   })
 
-  it('FE-PLANNER-DAYPLAN-155: on a touch device place rows lose their drag handle', () => {
-    const place = buildPlace({ id: 1, name: 'Touch place' })
+  it('FE-PLANNER-DAYPLAN-155: below lg place rows lose their drag handle', () => {
+    const place = buildPlace({ id: 1, name: 'Narrow place' })
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
     const a = buildAssignment({ id: 11, day_id: 10, order_index: 0, place })
-    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [a] }, isTouch: true })} />)
-    const row = screen.getByText('Touch place').closest('.dp-row') as HTMLElement
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [a] }, isMobile: true })} />)
+    const row = screen.getByText('Narrow place').closest('.dp-row') as HTMLElement
     expect(row.getAttribute('draggable')).toBe('false')
     expect(row.querySelector('.dp-grip')).toBeNull()
     fireEvent.dragStart(row, { dataTransfer: emptyDataTransfer })
     expect(row.style.opacity).toBe('1')
+  })
+
+  // #1616: a tablet is a coarse pointer at a desktop width. It gets the same rows
+  // the mouse does — the long press in touchDragBridge is what starts the drag.
+  it('FE-PLANNER-DAYPLAN-155b: at desktop width place rows keep grip and drag', () => {
+    const place = buildPlace({ id: 1, name: 'Tablet place' })
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
+    const a = buildAssignment({ id: 11, day_id: 10, order_index: 0, place })
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], places: [place], assignments: { '10': [a] }, isMobile: false })} />)
+    const row = screen.getByText('Tablet place').closest('.dp-row') as HTMLElement
+    expect(row.getAttribute('draggable')).toBe('true')
+    expect(row.querySelector('.dp-grip')).not.toBeNull()
+    expect(row.closest('[data-touch-drag]')).not.toBeNull()
   })
 
   // ── Booking rows ─────────────────────────────────────────────────────────
@@ -3655,10 +3669,10 @@ describe('DayPlanSidebar', () => {
     await waitFor(() => expect(updateDayNote).toHaveBeenCalledWith(1, 10, 70, { sort_order: expect.any(Number) }))
   })
 
-  it('FE-PLANNER-DAYPLAN-188: on a touch device note rows lose their grip and cannot be dragged', () => {
+  it('FE-PLANNER-DAYPLAN-188: below lg note rows lose their grip and cannot be dragged', () => {
     const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
     mockDayNotesState.dayNotes = { '10': [buildDayNote({ id: 70, day_id: 10, text: 'A note' })] }
-    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], isTouch: true })} />)
+    render(<DayPlanSidebar {...makeDefaultProps({ days: [day], isMobile: true })} />)
     const row = cardRow(screen.getByText('A note'))
     expect(row.getAttribute('draggable')).toBe('false')
     expect(row.querySelector('.dp-grip')).toBeNull()
@@ -3756,5 +3770,70 @@ describe('DayPlanSidebar remaining branches', () => {
     const body = document.body.textContent ?? ''
     expect(body.indexOf('Departing Inn')).toBeGreaterThan(-1)
     expect(body.indexOf('Departing Inn')).toBeLessThan(body.indexOf('Arriving Inn'))
+  })
+})
+
+// #1616 — the reporter's iPad sees both panes but could not pick a row up at all.
+// This drives the real bridge rather than a synthetic dragstart, so it fails if the
+// long press, the hit test or the opt-in container ever stop lining up.
+describe('reordering the day plan with a finger (#1616)', () => {
+  /** Presses a row for longer than the bridge's long press. */
+  async function longPress(row: Element) {
+    fireEvent.touchStart(row, { touches: [{ identifier: 1, clientX: 20, clientY: 40 }] })
+    await new Promise(resolve => setTimeout(resolve, 400))
+  }
+
+  function dragTo(target: Element) {
+    document.elementFromPoint = () => target as Element
+    fireEvent.touchMove(document, { touches: [{ identifier: 1, clientX: 20, clientY: 180 }] })
+    const end = new Event('touchend', { bubbles: true, cancelable: true })
+    Object.defineProperty(end, 'touches', { value: [] })
+    fireEvent(document, end)
+  }
+
+  it('FE-PLANNER-DAYPLAN-189: a long press drags one place row onto another and reorders the day', async () => {
+    const onReorder = vi.fn().mockResolvedValue(undefined)
+    const place1 = buildPlace({ id: 1, name: 'First Place' })
+    const place2 = buildPlace({ id: 2, name: 'Second Place' })
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
+    const a1 = buildAssignment({ id: 11, day_id: 10, order_index: 0, place: place1 })
+    const a2 = buildAssignment({ id: 12, day_id: 10, order_index: 1, place: place2 })
+    render(<DayPlanSidebar {...makeDefaultProps({
+      days: [day], places: [place1, place2], assignments: { '10': [a1, a2] }, onReorder,
+    })} />)
+    const teardown = installTouchDragBridge()
+    try {
+      const from = screen.getByText('First Place').closest('[draggable="true"]')!
+      const to = screen.getByText('Second Place').closest('[draggable="true"]')!
+      await longPress(from)
+      dragTo(to)
+      await waitFor(() => expect(onReorder).toHaveBeenCalledWith(10, expect.any(Array)))
+    } finally {
+      teardown()
+    }
+  })
+
+  it('FE-PLANNER-DAYPLAN-190: a swipe across the same row scrolls instead of reordering', async () => {
+    const onReorder = vi.fn().mockResolvedValue(undefined)
+    const place1 = buildPlace({ id: 1, name: 'First Place' })
+    const place2 = buildPlace({ id: 2, name: 'Second Place' })
+    const day = buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' })
+    const a1 = buildAssignment({ id: 11, day_id: 10, order_index: 0, place: place1 })
+    const a2 = buildAssignment({ id: 12, day_id: 10, order_index: 1, place: place2 })
+    render(<DayPlanSidebar {...makeDefaultProps({
+      days: [day], places: [place1, place2], assignments: { '10': [a1, a2] }, onReorder,
+    })} />)
+    const teardown = installTouchDragBridge()
+    try {
+      const from = screen.getByText('First Place').closest('[draggable="true"]')!
+      fireEvent.touchStart(from, { touches: [{ identifier: 1, clientX: 20, clientY: 40 }] })
+      // The finger travels before the press lands, so the browser keeps the gesture.
+      const moved = fireEvent.touchMove(document, { touches: [{ identifier: 1, clientX: 20, clientY: 140 }] })
+      expect(moved).toBe(true)
+      await new Promise(resolve => setTimeout(resolve, 400))
+      expect(onReorder).not.toHaveBeenCalled()
+    } finally {
+      teardown()
+    }
   })
 })

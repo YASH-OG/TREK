@@ -298,7 +298,7 @@ export function useTripPlanner() {
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
   }, [])
-  // Layout is width-driven (isMobile); drag affordances are pointer-driven (isTouch).
+  // Layout is width-driven (isMobile); the drag bridge is pointer-driven (isTouch).
   // Conflating them is what left a tablet's places list undraggable-but-unscrollable (#1432).
   const isTouch = useIsTouch()
 

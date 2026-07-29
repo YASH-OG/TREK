@@ -104,11 +104,6 @@ interface DayPlanSidebarProps {
   /** Mobile: show the route tools footer (Route toggle / Optimize / travel profile) on expanded days, since selecting a day closes the sheet */
   showRouteToolsWhenExpanded?: boolean
   isMobile?: boolean
-  /** Coarse primary pointer. Drag & drop reorder is disabled here (it hijacks the
-   *  touch-scroll gesture, #1432); the grip handle is hidden and the arrow reorder
-   *  buttons take over instead. Distinct from isMobile, which is width-based — a
-   *  tablet is a wide touch device and needs both. */
-  isTouch?: boolean
 }
 
 /**
@@ -156,9 +151,11 @@ function useDayPlanSidebar(props: DayPlanSidebarProps) {
   onScrollTopChange,
   showRouteToolsWhenExpanded = false,
   isMobile = false,
-  isTouch = false,
   } = props
-  const dragDisabled = isMobile || isTouch
+  // Below lg the plan and the places sit in separate tabs, so there is nothing
+  // to drag between. A coarse pointer is no longer a reason of its own: tablets
+  // reach the same drag through a long press (#1616).
+  const dragDisabled = isMobile
   const toast = useToast()
   const { t, language, locale } = useTranslation()
   const ctxMenu = useContextMenu()
@@ -1254,7 +1251,7 @@ const DayPlanSidebar = React.memo(function DayPlanSidebar(props: DayPlanSidebarP
     ])
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', fontFamily: "var(--font-system)" }}>
+    <div data-touch-drag={dragDisabled ? undefined : ''} style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', fontFamily: "var(--font-system)" }}>
       {/* Toolbar */}
       <DayPlanSidebarToolbar
         tripId={tripId}

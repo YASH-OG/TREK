@@ -31,8 +31,6 @@ export interface PlacesSidebarProps {
   onBulkChangeCategory?: (ids: number[], categoryId: number | null) => void
   days: Day[]
   isMobile: boolean
-  /** Primary pointer is coarse — HTML5 drag would swallow the scroll gesture (#1432). */
-  isTouch?: boolean
   pushUndo?: (label: string, undoFn: () => Promise<void> | void) => void
   initialScrollTop?: number
   onScrollTopChange?: (top: number) => void
