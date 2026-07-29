@@ -3836,4 +3836,29 @@ describe('reordering the day plan with a finger (#1616)', () => {
       teardown()
     }
   })
+
+  // The reorder popup renders inside the sidebar, so it inherits the opt-in and
+  // its day rows become draggable by finger too. Pinned so it stays deliberate.
+  it('FE-PLANNER-DAYPLAN-191: a long press reorders days in the reorder popup', async () => {
+    const onReorderDays = vi.fn().mockResolvedValue(undefined)
+    const days = [
+      buildDay({ id: 10, date: '2025-06-01', title: 'Day 1' }),
+      buildDay({ id: 11, date: '2025-06-02', title: 'Day 2' }),
+      buildDay({ id: 12, date: '2025-06-03', title: 'Day 3' }),
+    ]
+    render(<DayPlanSidebar {...makeDefaultProps({ days, onReorderDays, onAddDay: vi.fn() })} />)
+    fireEvent.click(screen.getByLabelText('Reorder days'))
+    const teardown = installTouchDragBridge()
+    try {
+      const rows = document.querySelectorAll('[draggable="true"]')
+      const from = [...rows].find(r => r.textContent?.includes('Day 1'))!
+      const to = [...rows].find(r => r.textContent?.includes('Day 3'))!
+      expect(from.closest('[data-touch-drag]')).not.toBeNull()
+      await longPress(from)
+      dragTo(to)
+      await waitFor(() => expect(onReorderDays).toHaveBeenCalled())
+    } finally {
+      teardown()
+    }
+  })
 })
