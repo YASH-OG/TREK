@@ -3,6 +3,7 @@ import { ChevronRight, MapPin, Star } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import apiClient from '../../../api/client'
 import { continentForCountry } from '@trek/shared'
+import { withCountryMarkedVisited } from '../../../pages/atlas/atlasModel'
 import { getApiErrorMessage } from '../../../types'
 import { useToast } from '../../../components/shared/Toast'
 import MSheet from '../../components/MSheet'
@@ -78,16 +79,7 @@ export default function MAtlasCountryPopup({ atlas }: MAtlasCountryPopupProps) {
     const { code } = confirmAction
     try {
       await apiClient.post(`/addons/atlas/country/${code}/mark`)
-      setData((prev) => {
-        if (!prev || prev.countries.find((c) => c.code === code)) return prev
-        const cont = continentForCountry(code)
-        return {
-          ...prev,
-          countries: [...prev.countries, { code, placeCount: 0, tripCount: 0, firstVisit: null, lastVisit: null }],
-          stats: { ...prev.stats, totalCountries: prev.stats.totalCountries + 1 },
-          continents: { ...prev.continents, [cont]: (prev.continents?.[cont] || 0) + 1 },
-        }
-      })
+      setData((prev) => (prev ? withCountryMarkedVisited(prev, code) : prev))
     } catch (err) {
       toast.error(getApiErrorMessage(err, t('common.error')))
     }
@@ -103,18 +95,9 @@ export default function MAtlasCountryPopup({ atlas }: MAtlasCountryPopupProps) {
       setVisitedRegions((prev) => {
         const existing = prev[countryCode] || []
         if (existing.find((r) => r.code === regionCode)) return prev
-        return { ...prev, [countryCode]: [...existing, { code: regionCode, name: regionName, placeCount: 0, manuallyMarked: true }] }
+        return { ...prev, [countryCode]: [...existing, { code: regionCode, name: regionName, placeCount: 0, status: 'visited' as const, manuallyMarked: true }] }
       })
-      setData((prev) => {
-        if (!prev || prev.countries.find((c) => c.code === countryCode)) return prev
-        const cont = continentForCountry(countryCode)
-        return {
-          ...prev,
-          countries: [...prev.countries, { code: countryCode, placeCount: 0, tripCount: 0, firstVisit: null, lastVisit: null }],
-          stats: { ...prev.stats, totalCountries: prev.stats.totalCountries + 1 },
-          continents: { ...prev.continents, [cont]: (prev.continents?.[cont] || 0) + 1 },
-        }
-      })
+      setData((prev) => (prev ? withCountryMarkedVisited(prev, countryCode) : prev))
     } catch (err) {
       toast.error(getApiErrorMessage(err, t('common.error')))
     }

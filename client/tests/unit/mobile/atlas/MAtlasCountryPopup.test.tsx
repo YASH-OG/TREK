@@ -124,7 +124,7 @@ describe('MAtlasCountryPopup', () => {
 
     await waitFor(() => expect(atlas.setConfirmAction).toHaveBeenCalledWith(null));
     const regions = atlas.visitedRegions as VisitedRegions;
-    expect(regions.ES).toEqual([{ code: 'ES-GA', name: 'Galicia', placeCount: 0, manuallyMarked: true }]);
+    expect(regions.ES).toEqual([{ code: 'ES-GA', name: 'Galicia', placeCount: 0, status: 'visited', manuallyMarked: true }]);
     const data = atlas.data as AtlasData;
     expect(data.countries.map((c) => c.code)).toContain('ES');
     expect(data.stats.totalCountries).toBe(2);

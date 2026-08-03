@@ -5,7 +5,7 @@ import type { AtlasController } from '../../../../src/mobile/screens/atlas/atlas
 import type { CountryDetail } from '../../../../src/pages/atlas/atlasModel';
 import MAtlas from '../../../../src/mobile/screens/atlas/MAtlas';
 
-// FE-MOB-ATLASSCR-001 to FE-MOB-ATLASSCR-016
+// FE-MOB-ATLASSCR-001 to FE-MOB-ATLASSCR-019
 
 const mocks = vi.hoisted(() => ({ atlas: {} as AtlasController }));
 
@@ -219,5 +219,46 @@ describe('MAtlas', () => {
     await screen.findByPlaceholderText('Search a country...');
     const rows = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
     expect(rows.map((r) => r.textContent)).toEqual(['FranceVisited', 'JapanVisited']);
+  });
+
+  it('FE-MOB-ATLASSCR-017: the planned pill stays away while nothing is planned', () => {
+    render(<MAtlas />);
+
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(screen.queryByText('atlas.planned')).not.toBeInTheDocument();
+  });
+
+  it('FE-MOB-ATLASSCR-018: a planned country brings up the pill and its switch flips the layer', () => {
+    const atlas = setAtlas({
+      data: buildAtlasData({
+        stats: { totalTrips: 4, totalPlaces: 21, totalCountries: 7, totalDays: 30, totalCities: 9, totalCountriesPlanned: 2 },
+      }),
+    });
+    render(<MAtlas />);
+
+    expect(screen.getByText('atlas.planned')).toBeInTheDocument();
+    const toggle = screen.getByRole('switch', { name: 'atlas.showPlanned' });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
+
+    fireEvent.click(toggle);
+    expect(atlas.togglePlanned).toHaveBeenCalled();
+  });
+
+  it('FE-MOB-ATLASSCR-019: suggestions rank the countries you have been to above the planned ones', async () => {
+    setAtlas({
+      data: buildAtlasData({
+        countries: [
+          { code: 'JP', tripCount: 1, placeCount: 0, lastVisit: '2099-08-01', status: 'planned' },
+          { code: 'FR', tripCount: 1, placeCount: 1, lastVisit: '2022-01-01', status: 'visited' },
+        ],
+        stats: { totalTrips: 2, totalPlaces: 1, totalCountries: 1, totalDays: 4, totalCountriesPlanned: 1 },
+      }),
+    });
+    render(<MAtlas />, { initialEntries: ['/atlas?search=1'] });
+
+    await screen.findByPlaceholderText('Search a country...');
+    const rows = screen.getAllByRole('button').filter((b) => b.querySelector('img'));
+    // Japan has the later date but is only planned, so France leads and keeps "Visited".
+    expect(rows.map((r) => r.textContent)).toEqual(['FranceVisited', 'JapanPlanned']);
   });
 });
