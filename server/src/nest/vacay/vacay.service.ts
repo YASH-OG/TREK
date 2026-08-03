@@ -636,7 +636,7 @@ export class VacayService {
     // Notify invited user
     import('../notifications/notifications.bridge').then(({ send }) => {
       send({ event: 'vacay_invite', actorId: inviterId, scope: 'user', targetId: targetUserId, params: { actor: inviterEmail, planId: String(planId) } }).catch(() => {});
-    });
+    }).catch(() => {});
 
     return {};
   }
@@ -867,7 +867,7 @@ export class VacayService {
 
     import('../notifications/notifications.bridge').then(({ send }) => {
       send({ event: 'vacay_share', actorId: ownerId, scope: 'user', targetId: targetUserId, params: { actor: ownerEmail } }).catch(() => {});
-    });
+    }).catch(() => {});
 
     return {};
   }

@@ -500,6 +500,6 @@ export class CollabService {
       const params: Record<string, string> = { trip: tripInfo?.title || 'Untitled', actor: actor.email, tripId: String(tripId) };
       if (preview !== undefined) params.preview = preview;
       send({ event: 'collab_message', actorId: actor.id, scope: 'trip', targetId: Number(tripId), params }).catch(() => {});
-    });
+    }).catch(() => {});
   }
 }
