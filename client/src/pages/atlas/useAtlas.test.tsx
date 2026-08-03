@@ -9,7 +9,7 @@ import { useSettingsStore } from '../../store/settingsStore';
 import { A2_TO_A3 } from './atlasModel';
 import { useAtlas } from './useAtlas';
 
-// FE-HOOK-ATLAS-001 to FE-HOOK-ATLAS-030
+// FE-HOOK-ATLAS-001 to FE-HOOK-ATLAS-035
 
 interface MockGeoJson {
   data: { features?: Record<string, unknown>[] };
@@ -133,6 +133,20 @@ const statsResponse = {
   tripsThisYear: 1,
 };
 
+// FR has already happened, DE is a trip that starts next month, JP has no dates at all.
+// totalCountries counts the visited ones only — that split is the whole point of #1048.
+const plannedStatsResponse = {
+  ...statsResponse,
+  countries: [
+    { code: 'FR', tripCount: 2, placeCount: 5, firstVisit: '2023-01-01', lastVisit: '2024-06-01', status: 'visited' },
+    { code: 'DE', tripCount: 1, placeCount: 0, firstVisit: '2099-05-01', lastVisit: '2099-05-08', status: 'planned' },
+    { code: 'JP', tripCount: 1, placeCount: 0, firstVisit: null, lastVisit: null, status: 'idea' },
+  ],
+  stats: { totalTrips: 3, totalPlaces: 10, totalCountries: 1, totalDays: 14, totalCities: 3, totalCountriesPlanned: 1, totalCountriesIdea: 1 },
+  continents: { Europe: 1 },
+  continentsPlanned: { Europe: 1, Asia: 1 },
+};
+
 const feature = (props: Record<string, unknown>) => ({ type: 'Feature', properties: props, geometry: null });
 
 const geoCountries = {
@@ -171,6 +185,11 @@ function useAtlasHandlers(over: Partial<Record<string, unknown>> = {}) {
     http.get('/api/addons/atlas/regions/geo', () => HttpResponse.json(over.regionGeo ?? { features: [] })),
     http.get('/api/atlas-layers', () => HttpResponse.json({ layers: over.layers ?? [] })),
   );
+}
+
+/** The country layer is the only GeoJSON drawn without a dedicated pane. */
+function countryLayers(): MockGeoJson[] {
+  return (lf.geoJson as MockGeoJson[]).filter((g) => g.options.pane === undefined);
 }
 
 async function mountAtlas(over: Partial<Record<string, unknown>> = {}, props: { withPanel?: boolean } = {}) {
@@ -725,6 +744,101 @@ describe('useAtlas', () => {
       act(() => { lf.mapHandlers.moveend?.forEach((cb) => cb()); });
 
       expect((lf.geoJson as MockGeoJson[]).some((g) => g.options.pane === 'regionPane')).toBe(false);
+    });
+  });
+
+  describe('planned countries (#1048)', () => {
+    it('FE-HOOK-ATLAS-031: the planned layer starts off and only lists the visited countries', async () => {
+      await mountAtlas({ stats: plannedStatsResponse });
+
+      expect(atlas.showPlanned).toBe(false);
+      expect(atlas.visitedCountries.map((c) => c.code)).toEqual(['FR']);
+      expect(atlas.visibleCountries.map((c) => c.code)).toEqual(['FR']);
+      // countries stays the raw server list — the map picks from visibleCountries.
+      expect(atlas.countries.map((c) => c.code)).toEqual(['FR', 'DE', 'JP']);
+    });
+
+    it('FE-HOOK-ATLAS-032: a stored preference brings the planned countries back on mount', async () => {
+      localStorage.setItem('trek_atlas_show_planned', '1');
+      await mountAtlas({ stats: plannedStatsResponse });
+
+      expect(atlas.showPlanned).toBe(true);
+      expect(atlas.visibleCountries.map((c) => c.code)).toEqual(['FR', 'DE', 'JP']);
+      expect(atlas.visitedCountries.map((c) => c.code)).toEqual(['FR']);
+    });
+
+    it('FE-HOOK-ATLAS-032b: any other stored value keeps the layer off', async () => {
+      localStorage.setItem('trek_atlas_show_planned', '0');
+      await mountAtlas({ stats: plannedStatsResponse });
+
+      expect(atlas.showPlanned).toBe(false);
+    });
+
+    it('FE-HOOK-ATLAS-033: toggling reveals the planned countries and remembers the choice', async () => {
+      await mountAtlas({ stats: plannedStatsResponse });
+
+      act(() => atlas.togglePlanned());
+      expect(atlas.showPlanned).toBe(true);
+      expect(atlas.visibleCountries.map((c) => c.code)).toEqual(['FR', 'DE', 'JP']);
+      expect(localStorage.getItem('trek_atlas_show_planned')).toBe('1');
+
+      act(() => atlas.togglePlanned());
+      expect(atlas.showPlanned).toBe(false);
+      expect(atlas.visibleCountries.map((c) => c.code)).toEqual(['FR']);
+      expect(localStorage.getItem('trek_atlas_show_planned')).toBe('0');
+    });
+
+    it('FE-HOOK-ATLAS-034: a storage that refuses reads and writes still leaves a working toggle', async () => {
+      // Safari private mode: localStorage exists but throws. The toggle must not take
+      // the atlas down with it — it just forgets the choice between reloads.
+      const realGet = Storage.prototype.getItem;
+      const realSet = Storage.prototype.setItem;
+      const getSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key: string) {
+        if (key === 'trek_atlas_show_planned') throw new DOMException('denied', 'SecurityError');
+        return realGet.call(this, key);
+      });
+      const setSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key: string, value: string) {
+        if (key === 'trek_atlas_show_planned') throw new DOMException('denied', 'SecurityError');
+        realSet.call(this, key, value);
+      });
+
+      try {
+        await mountAtlas({ stats: plannedStatsResponse });
+        expect(atlas.showPlanned).toBe(false);
+
+        act(() => atlas.togglePlanned());
+
+        expect(atlas.showPlanned).toBe(true);
+        expect(atlas.visibleCountries.map((c) => c.code)).toEqual(['FR', 'DE', 'JP']);
+      } finally {
+        getSpy.mockRestore();
+        setSpy.mockRestore();
+      }
+    });
+
+    it('FE-HOOK-ATLAS-035: planned countries are painted dashed and never eat a visited colour', async () => {
+      await mountAtlas({ stats: plannedStatsResponse, geo: geoCountries });
+      await waitFor(() => expect(countryLayers().length).toBeGreaterThan(0));
+      const before = countryLayers().length;
+
+      act(() => atlas.togglePlanned());
+      await waitFor(() => expect(countryLayers().length).toBeGreaterThan(before));
+
+      const layers = countryLayers();
+      const layer = layers[layers.length - 1];
+      const styleFor = (a2: string) => {
+        const i = (layer.data.features ?? []).findIndex(
+          (f) => (f.properties as Record<string, string>).ISO_A2 === a2,
+        );
+        return layer.styles[i] as { fillOpacity: number; dashArray?: string; fillColor: string };
+      };
+
+      expect(styleFor('FR').dashArray).toBeUndefined();
+      expect(styleFor('DE').dashArray).toBe('6 4');
+      // The palette is built from the visited list only, so France keeps the first colour
+      // whether or not the planned layer is on.
+      expect(styleFor('FR').fillColor).toBe('#6366f1');
+      expect(styleFor('DE').fillColor).not.toBe('#6366f1');
     });
   });
 });

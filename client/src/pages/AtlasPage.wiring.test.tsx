@@ -8,7 +8,7 @@ import type { AtlasController } from '../mobile/screens/atlas/atlasController';
 import type { AtlasData, CountryDetail } from './atlas/atlasModel';
 import AtlasPage from './AtlasPage';
 
-// FE-PAGE-ATLASW-001 to FE-PAGE-ATLASW-026
+// FE-PAGE-ATLASW-001 to FE-PAGE-ATLASW-034
 //
 // AtlasPage is a wiring container around useAtlas: the hook is mocked here so the
 // confirm popup and the sidebar can be driven into every state directly, which the
@@ -450,7 +450,7 @@ describe('AtlasPage wiring', () => {
       render(<AtlasPage />);
 
       expect(screen.getByText('France')).toBeInTheDocument();
-      expect(screen.getByText('3 atlas.places · 4 Trips')).toBeInTheDocument();
+      expect(screen.getByText('3 atlas.places · 4 atlas.tripPlural')).toBeInTheDocument();
       // Only the first three trips are shown.
       expect(screen.queryByText('Brest')).not.toBeInTheDocument();
 
@@ -660,6 +660,53 @@ describe('AtlasPage wiring', () => {
 
       fireEvent.click(screen.getByText('common.back'));
       expect(atlas.setConfirmAction).toHaveBeenCalledWith({ type: 'choose', code: 'DE', name: 'Germany' });
+    });
+  });
+
+  describe('planned countries (#1048)', () => {
+    const withPlanned = (totalCountriesPlanned: number) =>
+      buildAtlasData({
+        stats: { totalTrips: 6, totalPlaces: 40, totalCountries: 9, totalDays: 55, totalCities: 12, totalCountriesPlanned },
+      });
+
+    it('FE-PAGE-ATLASW-032: the panel only mentions planned countries once there are some', () => {
+      setAtlas({ data: withPlanned(0) });
+      const { unmount } = render(<AtlasPage />);
+
+      expect(screen.queryByText(/atlas\.planned/)).not.toBeInTheDocument();
+      unmount();
+
+      setAtlas({ data: withPlanned(3) });
+      render(<AtlasPage />);
+
+      expect(screen.getByText('+3 atlas.planned')).toBeInTheDocument();
+    });
+
+    it('FE-PAGE-ATLASW-033: the layer toggle rides on the same count and flips the planned layer', () => {
+      setAtlas({ data: withPlanned(0) });
+      const { unmount } = render(<AtlasPage />);
+
+      expect(screen.queryByRole('button', { name: 'atlas.showPlanned' })).not.toBeInTheDocument();
+      unmount();
+
+      const atlas = setAtlas({ data: withPlanned(3) });
+      render(<AtlasPage />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'atlas.showPlanned' }));
+      expect(atlas.togglePlanned).toHaveBeenCalled();
+    });
+
+    it('FE-PAGE-ATLASW-034: the country detail badges a country you have not reached yet', () => {
+      setAtlas({ selectedCountry: 'FR', countryDetail: buildCountryDetail({ status: 'planned' }) });
+      const { unmount } = render(<AtlasPage />);
+
+      expect(screen.getByText('atlas.planned')).toBeInTheDocument();
+      unmount();
+
+      setAtlas({ selectedCountry: 'FR', countryDetail: buildCountryDetail({ status: 'visited' }) });
+      render(<AtlasPage />);
+
+      expect(screen.queryByText('atlas.planned')).not.toBeInTheDocument();
     });
   });
 });

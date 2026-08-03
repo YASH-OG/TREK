@@ -1,5 +1,6 @@
 import { vi } from 'vitest';
 import type { AtlasController } from '../../src/mobile/screens/atlas/atlasController';
+import type { VisitStatus } from '@trek/shared';
 import type { AtlasData, BucketItem, CountryDetail } from '../../src/pages/atlas/atlasModel';
 
 /**
@@ -12,17 +13,21 @@ import type { AtlasData, BucketItem, CountryDetail } from '../../src/pages/atlas
  * setter was called" and "this is the state it produced".
  */
 
-export type VisitedRegions = Record<string, { code: string; name: string; placeCount: number; manuallyMarked?: boolean }[]>;
+export type VisitedRegions = Record<
+  string,
+  { code: string; name: string; placeCount: number; manuallyMarked?: boolean; status?: VisitStatus }[]
+>;
 
 const echoT = (key: string, params?: Record<string, string | number>): string =>
   params ? `${key}:${Object.values(params).join(',')}` : key;
 
 export function buildAtlasData(over: Partial<AtlasData> = {}): AtlasData {
   return {
-    countries: [{ code: 'FR', tripCount: 2, placeCount: 5, firstVisit: '2023-01-01', lastVisit: '2024-06-01' }],
-    stats: { totalTrips: 3, totalPlaces: 10, totalCountries: 1, totalDays: 14, totalCities: 3 },
+    countries: [{ code: 'FR', tripCount: 2, placeCount: 5, firstVisit: '2023-01-01', lastVisit: '2024-06-01', status: 'visited' }],
+    stats: { totalTrips: 3, totalPlaces: 10, totalCountries: 1, totalDays: 14, totalCities: 3, totalCountriesPlanned: 0, totalCountriesIdea: 0 },
     mostVisited: null,
     continents: { Europe: 1 },
+    continentsPlanned: {},
     lastTrip: { id: 7, title: 'Paris Trip', countryCode: 'FR' },
     nextTrip: null,
     streak: 2,
@@ -50,6 +55,7 @@ export function buildCountryDetail(over: Partial<CountryDetail> = {}): CountryDe
     places: [],
     trips: [],
     manually_marked: false,
+    status: 'visited',
     ...over,
   };
 }
@@ -99,6 +105,10 @@ export function buildAtlasController(over: Record<string, unknown> = {}): AtlasC
     data: buildAtlasData(),
     stats: buildAtlasData().stats,
     countries: buildAtlasData().countries,
+    visitedCountries: buildAtlasData().countries,
+    visibleCountries: buildAtlasData().countries,
+    showPlanned: false,
+    togglePlanned: vi.fn(() => undefined),
     selectedCountry: null,
     countryDetail: null,
     loadCountryDetail: vi.fn(async () => undefined),
@@ -144,6 +154,13 @@ export function buildAtlasController(over: Record<string, unknown> = {}): AtlasC
   const data = ctrl.data as AtlasData | null;
   if (!('stats' in over)) ctrl.stats = data?.stats ?? { totalTrips: 0, totalPlaces: 0, totalCountries: 0, totalDays: 0 };
   if (!('countries' in over)) ctrl.countries = data?.countries ?? [];
+  // The hook derives these from data + showPlanned; mirror that so a test that only
+  // sets `data` still gets a consistent controller.
+  const all = (ctrl.countries ?? []) as AtlasData['countries'];
+  if (!('visitedCountries' in over)) ctrl.visitedCountries = all.filter(c => (c.status ?? 'visited') === 'visited');
+  if (!('visibleCountries' in over)) {
+    ctrl.visibleCountries = ctrl.showPlanned ? all : all.filter(c => (c.status ?? 'visited') === 'visited');
+  }
 
   return ctrl as unknown as AtlasController;
 }
