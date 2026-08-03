@@ -36,7 +36,7 @@ vi.mock('../../src/websocket', () => ({ broadcastToUser: vi.fn(), broadcast: vi.
 
 import { createTables } from '../../src/db/schema';
 import { runMigrations } from '../../src/db/migrations';
-import { createUser } from '../helpers/factories';
+import { createUser, createTrip } from '../helpers/factories';
 import { AtlasModule } from '../../src/nest/atlas/atlas.module';
 import { DatabaseModule } from '../../src/nest/database/database.module';
 import { TrekExceptionFilter } from '../../src/nest/common/trek-exception.filter';
@@ -151,5 +151,37 @@ describe('Atlas e2e (real auth guard + real service + temp SQLite)', () => {
     const res = await request(server).delete('/api/addons/atlas/bucket-list/999').set('Cookie', sessionCookie(userId));
     expect(res.status).toBe(404);
     expect(res.body).toEqual({ error: 'Item not found' });
+  });
+
+  // #1048 — the whole point of the feature over the real wire: a booked-but-not-taken
+  // trip must still reach the client (so the map can draw it) without counting as a
+  // visit. Runs on its own user so the trip-less pin above stays trip-less.
+  it('200 stats keeps a future trip out of the visited count but still ships it as planned', async () => {
+    const plannerId = createUser(db as never, { username: 'atlas-planner', email: 'atlas-planner@test.example' }).user.id;
+    // Offsets from today, not literal dates — a hardcoded future date expires.
+    const iso = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+    const past = createTrip(db as never, plannerId, { title: 'Rome, last month', start_date: iso(-40), end_date: iso(-30) });
+    const future = createTrip(db as never, plannerId, { title: 'Tokyo, next month', start_date: iso(30), end_date: iso(40) });
+    // Address-only (no lat/lng), keeping the file's no-background-geocode property.
+    const insertPlace = db.prepare('INSERT INTO places (trip_id, name, address) VALUES (?, ?, ?)');
+    insertPlace.run(past.id, 'Colosseum', 'Piazza del Colosseo, Rome, Italy');
+    insertPlace.run(future.id, 'Senso-ji', 'Asakusa, Tokyo, Japan');
+
+    const res = await request(server).get('/api/addons/atlas/stats').set('Cookie', sessionCookie(plannerId));
+    expect(res.status).toBe(200);
+
+    const byCode = Object.fromEntries((res.body.countries as { code: string }[]).map((c) => [c.code, c]));
+    expect(byCode['IT']).toMatchObject({ status: 'visited' });
+    expect(byCode['JP']).toMatchObject({ status: 'planned' });
+    expect(res.body.stats.totalCountries).toBe(1);
+    expect(res.body.stats.totalCountriesPlanned).toBe(1);
+    expect(res.body.countries.length).toBeGreaterThan(res.body.stats.totalCountries);
+    expect(res.body.continents).toEqual({ Europe: 1 });
+    expect(res.body.continentsPlanned).toEqual({ Asia: 1 });
+
+    // The country sheet agrees with the map.
+    const jp = await request(server).get('/api/addons/atlas/country/jp').set('Cookie', sessionCookie(plannerId));
+    expect(jp.status).toBe(200);
+    expect(jp.body.status).toBe('planned');
   });
 });

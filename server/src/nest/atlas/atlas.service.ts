@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { CONTINENT_MAP } from '@trek/shared';
+import { CONTINENT_MAP, strongerVisitStatus, todayUtc, tripVisitStatus, VisitStatus } from '@trek/shared';
 import { Trip, Place } from '../../types';
 import { DatabaseService } from '../database/database.service';
 import {
@@ -71,6 +71,15 @@ export class AtlasService {
     if (tripIds.length === 0) return [];
     const placeholders = tripIds.map(() => '?').join(',');
     return this.db.prepare(`SELECT * FROM places WHERE trip_id IN (${placeholders})`).all(...tripIds) as Place[];
+  }
+
+  /**
+   * Trip id → whether that trip counts as visited, planned or a dateless idea (#1048).
+   * Everything country-shaped downstream takes its status from here, so the map, the
+   * counters and the country detail sheet can never disagree about the same trip.
+   */
+  private tripStatusMap(trips: Trip[], today: string): Map<number, VisitStatus> {
+    return new Map(trips.map((t) => [t.id, tripVisitStatus(t.start_date, t.end_date, today)]));
   }
 
   // ── Country resolution (batch DB cache + sync fallback + background geocoding) ──
@@ -157,19 +166,26 @@ export class AtlasService {
     }
 
     const places = this.getPlacesForTrips(tripIds);
+    const now = todayUtc();
+    const tripStatus = this.tripStatusMap(trips, now);
 
     interface CountryEntry {
       code: string;
       places: { id: number; name: string; lat: number | null; lng: number | null }[];
       tripIds: Set<number>;
+      status: VisitStatus;
     }
     const placeCountries = this.resolvePlaceCountries(places);
     const countrySet = new Map<string, CountryEntry>();
     for (const place of places) {
       const code = placeCountries.get(place.id);
       if (code) {
-        if (!countrySet.has(code)) {
-          countrySet.set(code, { code, places: [], tripIds: new Set() });
+        const status = tripStatus.get(place.trip_id) ?? 'idea';
+        const entry = countrySet.get(code);
+        if (entry) {
+          entry.status = strongerVisitStatus(entry.status, status);
+        } else {
+          countrySet.set(code, { code, places: [], tripIds: new Set(), status });
         }
         countrySet
           .get(code)!
@@ -200,6 +216,7 @@ export class AtlasService {
         tripCount: c.tripIds.size,
         firstVisit: dates[0] || null,
         lastVisit: dates[dates.length - 1] || null,
+        status: c.status,
       };
     });
 
@@ -241,8 +258,20 @@ export class AtlasService {
     }[];
     for (const mc of manualCountries) {
       if (hidden.has(mc.country_code)) continue;
-      if (!countries.find((c) => c.code === mc.country_code)) {
-        countries.push({ code: mc.country_code, placeCount: 0, tripCount: 0, firstVisit: null, lastVisit: null });
+      const existing = countries.find((c) => c.code === mc.country_code);
+      if (existing) {
+        // Marking a country by hand is a statement of fact and outranks the dates of a
+        // trip that happens to go there later (#1048).
+        existing.status = 'visited';
+      } else {
+        countries.push({
+          code: mc.country_code,
+          placeCount: 0,
+          tripCount: 0,
+          firstVisit: null,
+          lastVisit: null,
+          status: 'visited',
+        });
       }
     }
 
@@ -254,29 +283,53 @@ export class AtlasService {
     const endpoints = this.db
       .prepare(
         `
-    SELECT DISTINCT e.lat, e.lng
+    SELECT DISTINCT r.trip_id, e.lat, e.lng
     FROM reservation_endpoints e
     JOIN reservations r ON e.reservation_id = r.id
     WHERE r.trip_id IN (${tripIds.map(() => '?').join(',')}) AND e.role IN ('from', 'to')
   `,
       )
-      .all(...tripIds) as { lat: number; lng: number }[];
+      .all(...tripIds) as { trip_id: number; lat: number; lng: number }[];
+
+    // Selecting trip_id makes the DISTINCT per trip, so the same airport comes back once
+    // per booking. Collapse to one entry per coordinate before resolving countries —
+    // getCountryFromCoords is a point-in-polygon scan and used to run once per point.
+    const endpointStatus = new Map<string, { lat: number; lng: number; status: VisitStatus }>();
     for (const e of endpoints) {
+      const status = tripStatus.get(e.trip_id) ?? 'idea';
+      const key = `${e.lat},${e.lng}`;
+      const seen = endpointStatus.get(key);
+      if (seen) seen.status = strongerVisitStatus(seen.status, status);
+      else endpointStatus.set(key, { lat: e.lat, lng: e.lng, status });
+    }
+    for (const e of endpointStatus.values()) {
       const code = getCountryFromCoords(e.lat, e.lng);
-      if (code && !hidden.has(code) && !countries.find((c) => c.code === code)) {
-        countries.push({ code, placeCount: 0, tripCount: 0, firstVisit: null, lastVisit: null });
-      }
+      if (!code || hidden.has(code)) continue;
+      const existing = countries.find((c) => c.code === code);
+      if (existing) existing.status = strongerVisitStatus(existing.status, e.status);
+      else
+        countries.push({ code, placeCount: 0, tripCount: 0, firstVisit: null, lastVisit: null, status: e.status });
     }
 
-    const mostVisited = countries.length > 0 ? countries.reduce((a, b) => (a.placeCount > b.placeCount ? a : b)) : null;
+    // Everything below counts actual visits only. countries[] still carries planned and
+    // dateless entries so the client can draw them once the user asks for them (#1048).
+    const visited = countries.filter((c) => c.status === 'visited');
+    const planned = countries.filter((c) => c.status === 'planned');
+
+    const mostVisited = visited.length > 0 ? visited.reduce((a, b) => (a.placeCount > b.placeCount ? a : b)) : null;
 
     const continents: Record<string, number> = {};
-    countries.forEach((c) => {
+    visited.forEach((c) => {
       const cont = CONTINENT_MAP[c.code] || 'Other';
       continents[cont] = (continents[cont] || 0) + 1;
     });
 
-    const now = new Date().toISOString().split('T')[0];
+    const continentsPlanned: Record<string, number> = {};
+    planned.forEach((c) => {
+      const cont = CONTINENT_MAP[c.code] || 'Other';
+      continentsPlanned[cont] = (continentsPlanned[cont] || 0) + 1;
+    });
+
     const pastTrips = trips
       .filter((t) => t.end_date && t.end_date <= now)
       .sort((a, b) => b.end_date!.localeCompare(a.end_date!));
@@ -330,12 +383,15 @@ export class AtlasService {
       stats: {
         totalTrips: trips.length,
         totalPlaces: places.length,
-        totalCountries: countries.length,
+        totalCountries: visited.length,
+        totalCountriesPlanned: planned.length,
+        totalCountriesIdea: countries.length - visited.length - planned.length,
         totalDays,
         totalCities,
       },
       mostVisited,
       continents,
+      continentsPlanned,
       lastTrip,
       nextTrip,
       streak,
@@ -355,7 +411,7 @@ export class AtlasService {
       const marked = !!this.db
         .prepare('SELECT 1 FROM visited_countries WHERE user_id = ? AND country_code = ?')
         .get(userId, code);
-      return { places: [], trips: [], manually_marked: marked };
+      return { places: [], trips: [], manually_marked: marked, status: marked ? 'visited' : 'idea' };
     }
 
     const places = this.getPlacesForTrips(tripIds);
@@ -392,7 +448,15 @@ export class AtlasService {
     const isManuallyMarked = !!this.db
       .prepare('SELECT 1 FROM visited_countries WHERE user_id = ? AND country_code = ?')
       .get(userId, code);
-    return { places: matchingPlaces, trips: matchingTrips, manually_marked: isManuallyMarked };
+
+    // Take the status from the same trip classification stats() uses rather than deriving
+    // it again here — the detail sheet and the map must agree on what this country is.
+    const tripStatus = this.tripStatusMap(trips, todayUtc());
+    let status: VisitStatus = 'idea';
+    for (const id of matchingTripIds) status = strongerVisitStatus(status, tripStatus.get(id) ?? 'idea');
+    if (isManuallyMarked) status = 'visited';
+
+    return { places: matchingPlaces, trips: matchingTrips, manually_marked: isManuallyMarked, status };
   }
 
   // ── Mark / unmark country ─────────────────────────────────────────────────
@@ -524,12 +588,20 @@ export class AtlasService {
 
   // ── Visited regions ───────────────────────────────────────────────────────
 
-  async visitedRegions(
-    userId: number,
-  ): Promise<{ regions: Record<string, { code: string; name: string; placeCount: number }[]> }> {
+  async visitedRegions(userId: number): Promise<{
+    regions: Record<
+      string,
+      { code: string; name: string; placeCount: number; status: VisitStatus; manuallyMarked?: boolean }[]
+    >;
+  }> {
     const trips = this.getUserTrips(userId);
     const tripIds = trips.map((t) => t.id);
     const places = this.getPlacesForTrips(tripIds);
+
+    // Regions carry the same status as their country, otherwise zooming into a merely
+    // planned country would reveal regions painted as visited (#1048).
+    const tripStatus = this.tripStatusMap(trips, todayUtc());
+    const placeTrip = new Map(places.map((p) => [p.id, p.trip_id]));
 
     // Check DB cache first
     const placeIds = places.filter((p) => p.lat && p.lng).map((p) => p.id);
@@ -567,22 +639,32 @@ export class AtlasService {
     }
 
     // Group by country → regions with place counts
-    const regionMap: Record<string, Map<string, { code: string; name: string; placeCount: number }>> = {};
-    for (const [, entry] of cachedMap) {
+    const regionMap: Record<
+      string,
+      Map<string, { code: string; name: string; placeCount: number; status: VisitStatus }>
+    > = {};
+    for (const [placeId, entry] of cachedMap) {
+      const tripId = placeTrip.get(placeId);
+      const status = (tripId !== undefined ? tripStatus.get(tripId) : undefined) ?? 'idea';
       if (!regionMap[entry.country_code]) regionMap[entry.country_code] = new Map();
       const existing = regionMap[entry.country_code].get(entry.region_code);
       if (existing) {
         existing.placeCount++;
+        existing.status = strongerVisitStatus(existing.status, status);
       } else {
         regionMap[entry.country_code].set(entry.region_code, {
           code: entry.region_code,
           name: entry.region_name,
           placeCount: 1,
+          status,
         });
       }
     }
 
-    const result: Record<string, { code: string; name: string; placeCount: number; manuallyMarked?: boolean }[]> = {};
+    const result: Record<
+      string,
+      { code: string; name: string; placeCount: number; status: VisitStatus; manuallyMarked?: boolean }[]
+    > = {};
     for (const [country, regions] of Object.entries(regionMap)) {
       result[country] = [...regions.values()];
     }
@@ -591,8 +673,17 @@ export class AtlasService {
     const manualRegions = this.listManuallyVisitedRegions(userId);
     for (const r of manualRegions) {
       if (!result[r.country_code]) result[r.country_code] = [];
-      if (!result[r.country_code].find((x) => x.code === r.region_code)) {
-        result[r.country_code].push({ code: r.region_code, name: r.region_name, placeCount: 0, manuallyMarked: true });
+      const existing = result[r.country_code].find((x) => x.code === r.region_code);
+      if (existing) {
+        existing.status = 'visited';
+      } else {
+        result[r.country_code].push({
+          code: r.region_code,
+          name: r.region_name,
+          placeCount: 0,
+          status: 'visited',
+          manuallyMarked: true,
+        });
       }
     }
 
