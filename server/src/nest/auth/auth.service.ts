@@ -943,6 +943,9 @@ export class AuthService {
     );
     manualCountries.forEach(m => { if (m.country_code) countryCodes.add(m.country_code.toUpperCase()); });
 
+    // Only trips that have already started count as visited — a country you have merely
+    // booked a trip to isn't stamped in the passport yet, and one you jotted down without
+    // any dates even less so (#1048). date('now') is UTC, matching tripVisitStatus.
     const placeRegionCodes = this.db.all<{ country_code: string }>(`
     SELECT DISTINCT pr.country_code
     FROM place_regions pr
@@ -950,6 +953,8 @@ export class AuthService {
     JOIN trips t ON p.trip_id = t.id
     LEFT JOIN trip_members tm ON t.id = tm.trip_id
     WHERE (t.user_id = ? OR tm.user_id = ?) AND pr.country_code IS NOT NULL
+      AND COALESCE(t.start_date, t.end_date) IS NOT NULL
+      AND COALESCE(t.start_date, t.end_date) <= date('now')
   `, userId, userId);
     placeRegionCodes.forEach(r => { if (r.country_code) countryCodes.add(r.country_code.toUpperCase()); });
 
@@ -966,6 +971,8 @@ export class AuthService {
     JOIN trips t ON r.trip_id = t.id
     LEFT JOIN trip_members tm ON t.id = tm.trip_id
     WHERE (t.user_id = ? OR tm.user_id = ?) AND e.role IN ('from', 'to')
+      AND COALESCE(t.start_date, t.end_date) IS NOT NULL
+      AND COALESCE(t.start_date, t.end_date) <= date('now')
   `, userId, userId);
     for (const e of endpoints) {
       const code = getCountryFromCoords(e.lat, e.lng);

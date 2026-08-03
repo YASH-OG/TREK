@@ -72,7 +72,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { resetTestDb } from '../../helpers/test-db';
-import { createUser, createAdmin, createInviteToken, createTrip, createReservation } from '../../helpers/factories';
+import { createUser, createAdmin, createInviteToken, createTrip, createPlace, createReservation } from '../../helpers/factories';
 import { AuthService } from '../../../src/nest/auth/auth.service';
 import * as authBridge from '../../../src/nest/auth/auth.bridge';
 import { AtlasService } from '../../../src/nest/atlas/atlas.service';
@@ -751,9 +751,15 @@ describe('getTravelStats', () => {
     ).run(reservationId, role, sequence, `Endpoint ${sequence}`, lat, lng);
   }
 
+  // Every trip below is dated in the past: since #1048 the passport card only counts
+  // countries from trips that have already started, so a dateless fixture would make
+  // these role-filter/tombstone assertions vacuous.
+  const PAST_START = '2023-05-01';
+  const PAST_END = '2023-05-10';
+
   it('AUTH-DB-047: #1486 counts the from/to countries of a flight', () => {
     const { user } = createUser(testDb);
-    const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip' });
+    const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip', start_date: PAST_START, end_date: PAST_END });
     const res = createReservation(testDb, trip.id, { type: 'flight' });
     endpoint(res.id, 'from', 0, 50.9014, 4.4844);   // Brussels
     endpoint(res.id, 'to', 1, 35.6762, 139.6503);   // Tokyo
@@ -767,7 +773,7 @@ describe('getTravelStats', () => {
     // The Atlas query grew a role filter for #1486 but this copy of it did not, so the
     // dashboard passport card still counted a plane change as a visited country.
     const { user } = createUser(testDb);
-    const trip = createTrip(testDb, user.id, { title: 'Connection Trip' });
+    const trip = createTrip(testDb, user.id, { title: 'Connection Trip', start_date: PAST_START, end_date: PAST_END });
     const res = createReservation(testDb, trip.id, { type: 'flight' });
     endpoint(res.id, 'from', 0, 50.9014, 4.4844);     // Brussels
     endpoint(res.id, 'stop', 1, 35.6762, 139.6503);   // Tokyo — never leaves the airport
@@ -781,7 +787,7 @@ describe('getTravelStats', () => {
 
   it('AUTH-DB-049: #1490 a country removed in Atlas is not counted on the dashboard either', () => {
     const { user } = createUser(testDb);
-    const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip' });
+    const trip = createTrip(testDb, user.id, { title: 'Tokyo Trip', start_date: PAST_START, end_date: PAST_END });
     const res = createReservation(testDb, trip.id, { type: 'flight' });
     endpoint(res.id, 'from', 0, 50.9014, 4.4844);
     endpoint(res.id, 'to', 1, 35.6762, 139.6503);
@@ -793,6 +799,68 @@ describe('getTravelStats', () => {
     const after = svc.getTravelStats(user.id);
     expect(after.countries).not.toContain('JP');
     expect(after.countries).toContain('BE');
+  });
+
+  // ── #1048: the passport card only stamps trips that have happened ──────────
+  // Relative offsets, not literal dates — a hardcoded "future" date expires.
+  const iso = (days: number) => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
+
+  function placeInRegion(tripId: number, countryCode: string, regionCode: string) {
+    const place = createPlace(testDb, tripId, { name: `Place in ${countryCode}` });
+    testDb
+      .prepare('INSERT OR REPLACE INTO place_regions (place_id, country_code, region_code, region_name) VALUES (?, ?, ?, ?)')
+      .run(place.id, countryCode, regionCode, regionCode);
+  }
+
+  it('AUTH-DB-094: #1048 a place in a future trip does not stamp its country; a past trip does', () => {
+    const { user } = createUser(testDb);
+    const past = createTrip(testDb, user.id, { title: 'Paris, last month', start_date: iso(-40), end_date: iso(-30) });
+    const future = createTrip(testDb, user.id, { title: 'Tokyo, next month', start_date: iso(30), end_date: iso(40) });
+    placeInRegion(past.id, 'FR', 'FR-75');
+    placeInRegion(future.id, 'JP', 'JP-13');
+
+    const stats = svc.getTravelStats(user.id);
+
+    expect(stats.countries).toContain('FR');
+    expect(stats.countries).not.toContain('JP');
+  });
+
+  it('AUTH-DB-095: #1048 a trip with no dates at all stamps nothing', () => {
+    const { user } = createUser(testDb);
+    const dateless = createTrip(testDb, user.id, { title: 'Someday: Japan' });
+    placeInRegion(dateless.id, 'JP', 'JP-13');
+    const res = createReservation(testDb, dateless.id, { type: 'flight' });
+    endpoint(res.id, 'from', 0, 50.9014, 4.4844); // Brussels
+
+    const stats = svc.getTravelStats(user.id);
+
+    expect(stats.countries).toEqual([]);
+  });
+
+  it('AUTH-DB-096: #1048 a flight booked for a future trip does not stamp its endpoints', () => {
+    const { user } = createUser(testDb);
+    const future = createTrip(testDb, user.id, { title: 'Tokyo, next month', start_date: iso(30), end_date: iso(40) });
+    const res = createReservation(testDb, future.id, { type: 'flight' });
+    endpoint(res.id, 'from', 0, 50.9014, 4.4844);   // Brussels
+    endpoint(res.id, 'to', 1, 35.6762, 139.6503);   // Tokyo
+
+    const stats = svc.getTravelStats(user.id);
+
+    expect(stats.countries).not.toContain('BE');
+    expect(stats.countries).not.toContain('JP');
+  });
+
+  it('AUTH-DB-097: #1048 a manually marked country stays stamped regardless of trip dates', () => {
+    // The manual list is the user's own word, not derived from a trip — the date
+    // filter must not reach it.
+    const { user } = createUser(testDb);
+    const future = createTrip(testDb, user.id, { title: 'Tokyo, next month', start_date: iso(30), end_date: iso(40) });
+    placeInRegion(future.id, 'JP', 'JP-13');
+    testDb.prepare('INSERT INTO visited_countries (user_id, country_code) VALUES (?, ?)').run(user.id, 'JP');
+
+    const stats = svc.getTravelStats(user.id);
+
+    expect(stats.countries).toContain('JP');
   });
 });
 
