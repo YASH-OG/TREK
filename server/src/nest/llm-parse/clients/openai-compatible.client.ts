@@ -44,42 +44,58 @@ export class OpenAiCompatibleClient implements LlmExtractionClient {
       });
     }
 
-    const baseBody = {
-      model: input.model,
-      max_tokens: MAX_TOKENS,
-      // Extraction is a deterministic task — Ollama defaults to 0.7, which makes
-      // small models (NuExtract) drop fields or return empty. Pin to 0.
-      temperature: 0,
-      // NuExtract wants the template (in the user turn) to be the only instruction
-      // — a system prompt or a json_schema grammar derails it.
-      messages: nuextract
-        ? [{ role: 'user', content: userContent }]
-        : [
-            { role: 'system', content: input.prompt },
-            { role: 'user', content: userContent },
-          ],
+    // The token cap is `max_tokens` for the chat-completions API and for every
+    // local server (Ollama/vLLM/llama.cpp), but newer OpenAI models reject it
+    // with a 400 and demand `max_completion_tokens`. Start with the broadly
+    // supported spelling and swap on that specific rejection (#1760).
+    const buildBody = (tokenParam: 'max_tokens' | 'max_completion_tokens', jsonObject: boolean) => {
+      const baseBody = {
+        model: input.model,
+        [tokenParam]: MAX_TOKENS,
+        // Extraction is a deterministic task — Ollama defaults to 0.7, which makes
+        // small models (NuExtract) drop fields or return empty. Pin to 0.
+        temperature: 0,
+        // NuExtract wants the template (in the user turn) to be the only instruction
+        // — a system prompt or a json_schema grammar derails it.
+        messages: nuextract
+          ? [{ role: 'user', content: userContent }]
+          : [
+              { role: 'system', content: input.prompt },
+              { role: 'user', content: userContent },
+            ],
+      };
+      if (nuextract) return baseBody;
+      return {
+        ...baseBody,
+        response_format: jsonObject
+          ? { type: 'json_object' as const }
+          : { type: 'json_schema' as const, json_schema: { name: 'reservations', schema: input.jsonSchema, strict: false } },
+      };
     };
-    const body = nuextract
-      ? baseBody
-      : {
-          ...baseBody,
-          response_format: {
-            type: 'json_schema' as const,
-            json_schema: { name: 'reservations', schema: input.jsonSchema, strict: false },
-          },
-        };
 
-    let res = await this.send(url, body, input.apiKey);
+    let tokenParam: 'max_tokens' | 'max_completion_tokens' = 'max_tokens';
+    let res = await this.send(url, buildBody(tokenParam, false), input.apiKey);
+    let detail = res.ok ? '' : await res.text().catch(() => '');
+
+    // Newer OpenAI models 400 on `max_tokens` — retry the whole request (schema
+    // and all) with `max_completion_tokens` before giving up.
+    if (!res.ok && res.status === 400 && detail.includes('max_completion_tokens')) {
+      tokenParam = 'max_completion_tokens';
+      res = await this.send(url, buildBody(tokenParam, false), input.apiKey);
+      detail = res.ok ? '' : await res.text().catch(() => '');
+    }
+
     // Servers that only support `json_object` (DeepSeek, Mistral, some
     // vLLM/llama.cpp) reject `json_schema` with a 400 — retry once in
-    // `json_object` mode. The system prompt already dictates the exact output
-    // shape (and mentions JSON, which json_object mode requires).
+    // `json_object` mode (keeping whichever token param stuck). The system
+    // prompt already dictates the exact output shape (and mentions JSON, which
+    // json_object mode requires).
     if (!res.ok && res.status === 400 && !nuextract) {
-      res = await this.send(url, { ...baseBody, response_format: { type: 'json_object' as const } }, input.apiKey);
+      res = await this.send(url, buildBody(tokenParam, true), input.apiKey);
+      detail = res.ok ? '' : await res.text().catch(() => '');
     }
 
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
       throw new Error(`LLM request failed (${res.status}): ${detail.slice(0, 300)}`);
     }
 
