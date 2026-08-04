@@ -560,6 +560,34 @@ describe('AddonManager', () => {
     });
   });
 
+  it('FE-ADMIN-ADDON-029: switching to Anthropic clears a stale base URL before saving', async () => {
+    const user = userEvent.setup();
+    const bodies: unknown[] = [];
+    server.use(
+      addonsRoute([llmAddon({ provider: 'local', model: '', baseUrl: 'http://ollama.lan:11434/v1', apiKey: '', multimodal: false })]),
+      modelsRoute([]),
+      http.put('/api/admin/addons/llm_parsing', async ({ request }) => {
+        bodies.push(await request.json());
+        return HttpResponse.json({ success: true });
+      }),
+    );
+    render(<><ToastContainer /><AddonManager /></>);
+
+    await screen.findByText('Installed on the server');
+
+    await user.click(screen.getByRole('button', { name: /Local · OpenAI-compatible/ }));
+    await user.click(screen.getByRole('button', { name: 'Anthropic' }));
+    await user.type(screen.getByPlaceholderText('claude-opus-4-8'), 'claude-haiku-4-5-20251001');
+    await user.type(screen.getByPlaceholderText('sk-…'), 'sk-ant-live');
+
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Saved');
+    // The stale local base URL must not ride along to Anthropic — it would hijack the endpoint.
+    expect(bodies[0]).toEqual({
+      config: { provider: 'anthropic', model: 'claude-haiku-4-5-20251001', baseUrl: '', apiKey: 'sk-ant-live', multimodal: false },
+    });
+  });
+
   it('FE-ADMIN-ADDON-027: an error frame in the pull stream aborts the pull and is reported', async () => {
     const user = userEvent.setup();
     server.use(
