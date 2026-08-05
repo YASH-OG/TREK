@@ -3,6 +3,7 @@ import { Archive, ArchiveRestore, Camera, Search, X } from 'lucide-react'
 import { useTranslation } from '../../../i18n'
 import { tripsApi } from '../../../api/client'
 import { useCanDo } from '../../../store/permissionsStore'
+import { useSettingsStore } from '../../../store/settingsStore'
 import { useToast } from '../../../components/shared/Toast'
 import { normalizeImageFile } from '../../../utils/convertHeic'
 import { getApiErrorMessage } from '../../../types'
@@ -50,6 +51,7 @@ export default function MNewTripSheet({ open, trip, onClose, onSave, onCoverUpda
   const { t } = useTranslation()
   const toast = useToast()
   const can = useCanDo()
+  const defaultCurrency = useSettingsStore(s => s.settings.default_currency) || 'EUR'
   const fileRef = useRef<HTMLInputElement>(null)
   const coverSearchSeq = useRef(0)
   const canEditTrip = !isEditing || can('trip_edit', trip)
@@ -77,7 +79,7 @@ export default function MNewTripSheet({ open, trip, onClose, onSave, onCoverUpda
     setDescription(trip?.description || '')
     setStartDate(trip?.start_date || '')
     setEndDate(trip?.end_date || '')
-    setCurrency(trip?.currency || 'EUR')
+    setCurrency(trip?.currency || defaultCurrency)
     setCoverPreview(trip?.cover_image || null)
     setPendingCoverFile(null)
     setPendingUnsplashUrl(null)

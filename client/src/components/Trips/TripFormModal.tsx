@@ -4,6 +4,7 @@ import { Calendar, Camera, Search, X, UserPlus, Bell } from 'lucide-react'
 import { tripsApi, authApi } from '../../api/client'
 import CustomSelect from '../shared/CustomSelect'
 import { useAuthStore } from '../../store/authStore'
+import { useSettingsStore } from '../../store/settingsStore'
 import { useCanDo } from '../../store/permissionsStore'
 import { useToast } from '../shared/Toast'
 import { useTranslation } from '../../i18n'
@@ -42,6 +43,7 @@ export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUp
   const toast = useToast()
   const { t } = useTranslation()
   const currentUser = useAuthStore(s => s.user)
+  const defaultCurrency = useSettingsStore(s => s.settings.default_currency) || 'EUR'
   const tripRemindersEnabled = useAuthStore(s => s.tripRemindersEnabled)
   const setTripRemindersEnabled = useAuthStore(s => s.setTripRemindersEnabled)
   const can = useCanDo()
@@ -93,7 +95,7 @@ export default function TripFormModal({ isOpen, onClose, onSave, trip, onCoverUp
       setCoverPreview(trip.cover_image || null)
       setCoverSearchQuery('')
     } else {
-      setFormData({ title: '', description: '', start_date: '', end_date: '', currency: 'EUR', reminder_days: tripRemindersEnabled ? 3 : 0, day_count: 7 })
+      setFormData({ title: '', description: '', start_date: '', end_date: '', currency: defaultCurrency, reminder_days: tripRemindersEnabled ? 3 : 0, day_count: 7 })
       setCustomReminder(false)
       setCoverPreview(null)
       setCoverSearchQuery('')

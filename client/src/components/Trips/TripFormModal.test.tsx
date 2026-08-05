@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { delay, http, HttpResponse } from 'msw';
 import { useAuthStore } from '../../store/authStore';
 import { useTripStore } from '../../store/tripStore';
+import { useSettingsStore } from '../../store/settingsStore';
 import { usePermissionsStore } from '../../store/permissionsStore';
 import { resetAllStores, seedStore } from '../../../tests/helpers/store';
 import { buildUser, buildTrip } from '../../../tests/helpers/factories';
@@ -395,6 +396,20 @@ describe('TripFormModal', () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ currency: 'EUR' }));
+  });
+
+  it('FE-COMP-TRIPFORM-033b: a new trip defaults to the user\'s default_currency (#1784)', async () => {
+    seedStore(useSettingsStore, { settings: { ...useSettingsStore.getState().settings, default_currency: 'USD' } });
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue({ trip: buildTrip({ id: 99 }) });
+    render(<TripFormModal {...defaultProps} onSave={onSave} />);
+
+    await user.type(screen.getByPlaceholderText(/Summer in Japan/i), 'New York 2026');
+    const submitBtn = screen.getAllByText('Create New Trip').find(el => el.closest('button'))!;
+    await user.click(submitBtn.closest('button')!);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ currency: 'USD' }));
   });
 
   // Changing the start of a dated trip must go through the date-shift choice step (#1288).

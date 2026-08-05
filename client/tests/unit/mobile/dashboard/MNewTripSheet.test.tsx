@@ -5,6 +5,7 @@ import MNewTripSheet from '../../../../src/mobile/screens/dashboard/MNewTripShee
 import { tripsApi } from '../../../../src/api/client';
 import { useAuthStore } from '../../../../src/store/authStore';
 import { usePermissionsStore } from '../../../../src/store/permissionsStore';
+import { useSettingsStore } from '../../../../src/store/settingsStore';
 import { buildUser } from '../../../helpers/factories';
 import type { DashboardTrip } from '../../../../src/pages/dashboard/dashboardModel';
 import type { Trip, TripCreateRequest } from '@trek/shared';
@@ -75,6 +76,7 @@ beforeEach(() => {
 afterEach(() => {
   URL.createObjectURL = origCreateObjectURL;
   delete window.__addToast;
+  useSettingsStore.setState(s => ({ settings: { ...s.settings, default_currency: '' } }));
   vi.restoreAllMocks();
 });
 
@@ -86,6 +88,13 @@ describe('MNewTripSheet', () => {
     expect(screen.getByPlaceholderText('e.g. Summer in Japan')).toHaveValue('');
     expect(screen.getByText(/7 default days will be created/)).toBeInTheDocument();
     expect(screen.getByText('Add cover image')).toBeInTheDocument();
+  });
+
+  it('FE-MOB-NTSH-001b: create mode defaults the currency to the user\'s default_currency (#1784)', () => {
+    useSettingsStore.setState(s => ({ settings: { ...s.settings, default_currency: 'USD' } }));
+    render(<MNewTripSheet open trip={null} onClose={() => {}} onSave={() => {}} />);
+
+    expect(screen.getByLabelText('currency')).toHaveValue('USD');
   });
 
   it('FE-MOB-NTSH-002: edit mode preloads the trip and hides the no-date hint', () => {
