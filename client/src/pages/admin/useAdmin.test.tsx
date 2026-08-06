@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
+import { ROUTER_FUTURE } from '../../routerFuture';
 import { buildAdmin, buildUser } from '../../../tests/helpers/factories';
 import { server } from '../../../tests/helpers/msw/server';
 import { act, renderHook, waitFor } from '../../../tests/helpers/render';
@@ -25,7 +26,7 @@ vi.mock('../../components/shared/Toast', () => ({
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <MemoryRouter>
+    <MemoryRouter future={ROUTER_FUTURE}>
       <TranslationProvider>{children}</TranslationProvider>
     </MemoryRouter>
   );

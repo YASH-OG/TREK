@@ -1,6 +1,7 @@
 import React from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { ROUTER_FUTURE } from './routerFuture'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../tests/helpers/msw/server'
@@ -31,7 +32,7 @@ vi.mock('./hooks/useInAppNotificationListener.ts', () => ({
 
 function renderApp(initialPath = '/') {
   return render(
-    <MemoryRouter initialEntries={[initialPath]}>
+    <MemoryRouter initialEntries={[initialPath]} future={ROUTER_FUTURE}>
       <App />
     </MemoryRouter>
   )

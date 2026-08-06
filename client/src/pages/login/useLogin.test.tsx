@@ -3,6 +3,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, waitFor } from '../../../tests/helpers/render';
 import { MemoryRouter, type MemoryRouterProps } from 'react-router-dom';
+import { ROUTER_FUTURE } from '../../routerFuture';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../../tests/helpers/msw/server';
 import { resetAllStores } from '../../../tests/helpers/store';
@@ -63,7 +64,7 @@ function setLanguages(languages: string[]) {
 function wrapperFor(entries: MemoryRouterProps['initialEntries'] = ['/login']) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <MemoryRouter initialEntries={entries}>
+      <MemoryRouter initialEntries={entries} future={ROUTER_FUTURE}>
         <TranslationProvider>{children}</TranslationProvider>
       </MemoryRouter>
     );
