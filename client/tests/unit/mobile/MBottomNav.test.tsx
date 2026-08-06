@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { render, screen, fireEvent } from '../../helpers/render';
 import MBottomNav from '../../../src/mobile/components/MBottomNav';
 import { useAddonStore } from '../../../src/store/addonStore';

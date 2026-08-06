@@ -1,8 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import App from './App'
-import { ROUTER_FUTURE } from './routerFuture'
 // Self-hosted Poppins (bundled, same-origin) so the app font can't be blocked by
 // ad/tracker blockers the way the Google Fonts CDN can.
 import '@fontsource/poppins/300.css'
@@ -43,7 +42,7 @@ requestPersistentStorage()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter future={ROUTER_FUTURE}>
+    <BrowserRouter>
       <App />
     </BrowserRouter>
   </React.StrictMode>,

@@ -1,8 +1,7 @@
 import React from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
-import { MemoryRouter, type MemoryRouterProps } from 'react-router-dom';
+import { MemoryRouter, type MemoryRouterProps } from 'react-router';
 import { TranslationProvider } from '../../src/i18n/TranslationContext';
-import { ROUTER_FUTURE } from '../../src/routerFuture';
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, 'wrapper'> {
   initialEntries?: MemoryRouterProps['initialEntries'];
@@ -14,7 +13,7 @@ function renderWithProviders(
 ) {
   function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <MemoryRouter initialEntries={initialEntries} future={ROUTER_FUTURE}>
+      <MemoryRouter initialEntries={initialEntries}>
         <TranslationProvider>{children}</TranslationProvider>
       </MemoryRouter>
     );

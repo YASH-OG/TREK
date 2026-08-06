@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useVacay } from '../../../pages/vacay/useVacay'
 import { useVacayStore } from '../../../store/vacayStore'
 import { useAuthStore } from '../../../store/authStore'

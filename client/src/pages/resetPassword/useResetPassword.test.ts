@@ -7,7 +7,7 @@ import { useResetPassword } from './useResetPassword';
 const navigate = vi.fn();
 let search = new URLSearchParams('token=abc123');
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
   useSearchParams: () => [search],
 }));

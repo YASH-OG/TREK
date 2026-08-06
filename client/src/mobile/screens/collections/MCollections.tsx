@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router'
 import {
   Bookmark, Check, CheckCheck, CheckSquare, ChevronDown, Copy, CopyPlus,
   FolderInput, Layers, List, Loader2, Map as MapIcon, Pencil, Plus, Search, Share2,

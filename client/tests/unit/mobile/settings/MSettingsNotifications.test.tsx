@@ -1,6 +1,6 @@
 // FE-MOB-SETNOTIF-001 onwards
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { render, screen, waitFor, within } from '../../../helpers/render';

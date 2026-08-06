@@ -18,7 +18,7 @@ const host = vi.hoisted(() => ({
   trip: null as Record<string, unknown> | null,
 }));
 
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 vi.mock('../shared/Toast', () => ({ useToast: () => toast }));
 vi.mock('../../i18n', () => ({ useTranslation: () => ({ locale: 'en', t: (k: string) => k }) }));
 vi.mock('../../store/authStore', () => ({ useAuthStore: (sel: (s: unknown) => unknown) => sel({ user: host.user }) }));

@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { ArrowLeft, CheckCheck, Trash2 } from 'lucide-react'
 import MDancingTrek from '../../components/MDancingTrek'
 import { useTranslation } from '../../../i18n'

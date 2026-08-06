@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { Route, Routes } from 'react-router-dom';
+import { Route, Routes } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { fireEvent, render, screen, waitFor } from '../../../helpers/render';
 import { server } from '../../../helpers/msw/server';

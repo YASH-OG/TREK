@@ -1,6 +1,6 @@
 // FE-JRN-DETHOOK-001 to FE-JRN-DETHOOK-022
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../../tests/helpers/msw/server';
 import { render, screen, fireEvent, waitFor } from '../../../tests/helpers/render';
@@ -13,8 +13,8 @@ let routeParams: { id?: string } = { id: '7' };
 const mockNavigate = vi.fn();
 let mockIsMobile = false;
 
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+vi.mock('react-router', async () => {
+  const actual = await vi.importActual<typeof import('react-router')>('react-router');
   return { ...actual, useParams: () => routeParams, useNavigate: () => mockNavigate };
 });
 

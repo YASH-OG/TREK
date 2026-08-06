@@ -5,7 +5,7 @@ import { authApi } from '../../api/client';
 import { useForgotPassword } from './useForgotPassword';
 
 const navigate = vi.fn();
-vi.mock('react-router-dom', () => ({ useNavigate: () => navigate }));
+vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 
 const submitEvent = () => ({ preventDefault: vi.fn() }) as unknown as FormEvent;
 

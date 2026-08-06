@@ -6,7 +6,7 @@ import { useJoinTrip } from './useJoinTrip';
 const navigate = vi.fn();
 let params: { token?: string } = { token: 'inv-1' };
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
   useParams: () => params,
 }));

@@ -1,6 +1,6 @@
 // FE-W4SNA-001 to FE-W4SNA-005
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import type { NavigateFunction } from 'react-router-dom'
+import type { NavigateFunction } from 'react-router'
 import { registerNoticeAction, runNoticeAction } from './noticeActions'
 
 const navigate = vi.fn() as unknown as NavigateFunction

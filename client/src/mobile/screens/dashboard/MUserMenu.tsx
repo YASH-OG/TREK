@@ -1,5 +1,5 @@
 import React from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { LogOut, Moon, Settings2, Shield, Sun, SunMoon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from '../../../i18n'

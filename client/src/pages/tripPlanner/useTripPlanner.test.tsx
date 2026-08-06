@@ -31,7 +31,7 @@ const setSearchParams = vi.fn((updater: (p: URLSearchParams) => URLSearchParams)
   searchParams = typeof updater === 'function' ? updater(next) : next
 })
 
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useParams: () => routeParams,
   useNavigate: () => navigate,
   useSearchParams: () => [searchParams, setSearchParams],

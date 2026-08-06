@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { http, HttpResponse } from 'msw';
 import { render, screen, fireEvent, waitFor } from '../../../helpers/render';
 import { server } from '../../../helpers/msw/server';

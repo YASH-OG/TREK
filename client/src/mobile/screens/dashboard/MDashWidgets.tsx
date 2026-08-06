@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import {
   ArrowRight, ArrowRightLeft, Bookmark, Calendar, ChevronDown, ChevronRight,
   Clock, Hotel, MapPin, Plane, Plus, RefreshCw, Ticket, Utensils, X,

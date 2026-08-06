@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { Bell, Link2, Send } from 'lucide-react'
 import { useTranslation } from '../../../i18n'
 import { notificationsApi, settingsApi } from '../../../api/client'

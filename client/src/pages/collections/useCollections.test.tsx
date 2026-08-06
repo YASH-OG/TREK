@@ -16,7 +16,7 @@ import { useCollections } from './useCollections'
 
 const navigate = vi.fn()
 let routeParams: { id?: string } = {}
-vi.mock('react-router-dom', () => ({
+vi.mock('react-router', () => ({
   useNavigate: () => navigate,
   useParams: () => routeParams,
 }))

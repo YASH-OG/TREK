@@ -20,9 +20,9 @@ import { ReservationModal } from './ReservationModal';
 import type { BookingReviewDraft } from './parsedItemToDraft';
 import type { TripMember } from '../Budget/BudgetPanelMemberChips';
 
-// Mock react-router-dom useParams
-vi.mock('react-router-dom', async (importActual) => {
-  const actual = await importActual<typeof import('react-router-dom')>();
+// Mock react-router useParams
+vi.mock('react-router', async (importActual) => {
+  const actual = await importActual<typeof import('react-router')>();
   return { ...actual, useParams: () => ({ id: '1' }) };
 });
 

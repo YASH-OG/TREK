@@ -4,7 +4,7 @@ import { helpApi, type HelpNavSection, type HelpPageData } from '../../api/clien
 import { useHelp } from './useHelp';
 
 let routeParams: { slug?: string } = {};
-vi.mock('react-router-dom', () => ({ useParams: () => routeParams }));
+vi.mock('react-router', () => ({ useParams: () => routeParams }));
 
 const SECTIONS: HelpNavSection[] = [
   { title: 'Getting started', pages: [{ slug: 'Home', title: 'Welcome' }, { slug: 'Install', title: 'Installation' }] },

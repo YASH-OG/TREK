@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useLocation, useMatch } from 'react-router-dom'
+import { useNavigate, useLocation, useMatch } from 'react-router'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useTranslation } from '../../i18n'
 import { ChevronRight, MoreHorizontal, Plus, Search } from 'lucide-react'
