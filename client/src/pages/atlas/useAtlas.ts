@@ -417,7 +417,7 @@ export function useAtlas() {
           const countryCode = a3ToA2Entry ? a3ToA2Entry[0] : (isoA2 && isoA2 !== '-99' ? isoA2 : null)
           if (countryCode && countryCode !== '-99') {
             country_layer_by_a2_ref.current[countryCode] = layer
-            const name = feature.properties?.NAME || feature.properties?.ADMIN || resolveName(countryCode)
+            const name = resolveName(countryCode) || feature.properties?.NAME || feature.properties?.ADMIN || countryCode
             layer.bindTooltip(`<div style="font-size:12px;font-weight:600">${name}</div>`, {
               sticky: true, className: 'atlas-tooltip', direction: 'top', offset: [0, -10], opacity: 1
             })

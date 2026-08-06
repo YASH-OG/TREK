@@ -590,6 +590,28 @@ describe('useAtlas', () => {
       expect(atlas.confirmAction).toEqual({ type: 'choose', code: 'DE', name: 'Germany' });
     });
 
+    it('FE-HOOK-ATLAS-025b: an unvisited country is named by the locale resolver, not the English GeoJSON name (#1789)', async () => {
+      // GeoJSON only carries English names; marking an unvisited country must still use the
+      // account-language name, exactly as visited countries do.
+      await mountAtlas({
+        geo: {
+          type: 'FeatureCollection',
+          features: [
+            feature({ ISO_A2: 'FR', ADM0_A3: 'FRA', ISO_A3: 'FRA', NAME: 'France', ADMIN: 'France' }),
+            feature({ ISO_A2: 'DE', ADM0_A3: 'DEU', ISO_A3: 'DEU', NAME: 'GERMANY_EN_ONLY', ADMIN: 'GERMANY_EN_ONLY' }),
+          ],
+        },
+      });
+      await waitFor(() => expect(lf.geoJson.length).toBeGreaterThan(0));
+
+      const countryLayer = lf.geoJson[0] as MockGeoJson;
+      const de = countryLayer.entries.find((e) => (e.feature.properties as Record<string, string>).ISO_A2 === 'DE');
+
+      act(() => de!.layer.handlers.click({}));
+      expect(atlas.confirmAction).toEqual({ type: 'choose', code: 'DE', name: atlas.resolveName('DE') });
+      expect(atlas.confirmAction?.name).not.toBe('GERMANY_EN_ONLY');
+    });
+
     it('FE-HOOK-ATLAS-026: plugin tint layers are drawn in their own pane and redrawn on theme change', async () => {
       await mountAtlas({
         geo: geoCountries,
