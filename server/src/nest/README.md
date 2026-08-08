@@ -30,8 +30,9 @@ remains as the platform underneath `@nestjs/platform-express`.
   collab, vacay, reservations, day, permissions, audit, budget, trip, maps,
   transit, place, transit-itinerary, collections, atlas, auth, oidc, passkey,
   notifications, admin, webauthn-config, user-cleanup, oauth, wiki, mailer,
-  notification transports, notification preferences — see the migration recipe
-  below.
+  notification transports, notification preferences, memories (immich, synology,
+  unified, photo-resolver, thumbnails, trek-photo cache), journey, journeyShare
+  — see the migration recipe below.
 - **Foundation (BE-Phase 1, complete):** the eight stateless helpers moved to
   `common/`; every trip-access check routes through `DatabaseService`
   (`services/tripAccess.ts` and the dead `middleware/tripAccess.ts` are gone);
@@ -42,11 +43,9 @@ remains as the platform underneath `@nestjs/platform-express`.
   addon guards are one `AddonGuard` + `@RequireAddon`; the demo-mode block is one
   condition. Still open: `TripAccessGuard`, default-deny, the MFA policy.
 
-`src/services/` is down to three top-level files (journey, journeyShare, backup)
-plus the `airtrail/` and `memories/` directories. What is left each waits on an
-open decision: memories on its Zod contracts, journey on memories, backup on the
-plugins module split and the db-lifecycle question, airtrail on the credential
-handling. Note that the trip-access and
+`src/services/` is down to one top-level file (backup) plus the `airtrail/`
+directory. Both wait on an open decision: backup on the plugins module split and
+the db-lifecycle question, airtrail on the credential handling. Note that the trip-access and
 `canEdit` methods on the domain services are **not** dead weight waiting for a
 guard: their callers are overwhelmingly the `*.mcp.ts` tools, which never pass
 through an HTTP guard. In the five domains piloted for `TripAccessGuard`, 40 of
@@ -573,7 +572,7 @@ three `'enabled must be a boolean'` checks plus `'permissions object required'`
 and `'Object body required'` for the pipe envelope; the schemas are
 deliberately permissive wherever the service owns a bespoke 400 of its own.)
 Repeat these steps per
-service (next up: **journeyService** / **oauthService** —
+service (next up: **backupService** / **airtrail** —
 per the dependency-honest order in
 `migration-graph.md`). This is a
 **pure relocation** — byte-identical
@@ -602,7 +601,14 @@ bridges.
    markers are typed against the scope-derived `ScopeGroup` union and
    boot-validated by `trekMcpValidateAccess` (`src/mcp/nest-mcp-policy.ts`) —
    an unknown group, or `mode: 'write'` on a read-only group (`geo`,
-   `weather`), fails app boot. *(Design decision, settled with the tags pilot:
+   `weather`), fails app boot. **`mode` is typed the same way**: it is the mode
+   half of `Scope` (`read | write | delete | share`), augmented into
+   `@trek/nest-mcp` through `McpAccessModeRegistry` exactly like the group
+   registry. A scope that is neither read nor write — `journey:share` is the
+   one today — gets a real marker, *not* a `(ctx) => canX(ctx.scopes)`
+   predicate: predicates bypass the policy entirely and are invisible to the
+   boot gate, so a scope typo in one would ship as a silent full-access tool.
+   Reach for a predicate only when the gate genuinely is not a scope. *(Design decision, settled with the tags pilot:
    MCP tools stay outside the container and use the bridge. The alternative — handing the Nest app to the
    MCP layer via `app.get(XService)` — was rejected: it would thread the container
    through `mcpHandler` + every tool registrar and force a Nest bootstrap into the

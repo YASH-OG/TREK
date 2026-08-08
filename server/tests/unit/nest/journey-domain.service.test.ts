@@ -1,5 +1,5 @@
 /**
- * Unit tests for journeyService (JOURNEY-SVC-001 through JOURNEY-SVC-038).
+ * Unit tests for JourneyDomainService (JOURNEY-SVC-001 through JOURNEY-SVC-038).
  * Uses a real in-memory SQLite DB so SQL logic is exercised faithfully.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
@@ -53,39 +53,14 @@ import {
   createDayAssignment,
   addTripPhoto,
 } from '../../helpers/factories';
-import {
-  canAccessJourney,
-  isOwner,
-  canEdit,
-  listJourneys,
-  createJourney as svcCreateJourney,
-  getJourneyFull,
-  updateJourney,
-  deleteJourney,
-  addTripToJourney,
-  removeTripFromJourney,
-  listEntries,
-  createEntry,
-  updateEntry,
-  deleteEntry,
-  addPhoto,
-  addProviderPhoto,
-  deletePhoto,
-  addContributor,
-  updateContributorRole,
-  removeContributor,
-  getSuggestions,
-  syncTripPlaces,
-  reconcileTripSkeletons,
-  reorderEntries,
-  onPlaceCreated,
-  onPlaceUpdated,
-  onPlaceDeleted,
-  linkPhotoToEntry,
-  setPhotoProvider,
-  updatePhoto,
-  listUserTrips,
-} from '../../../src/services/journeyService';
+import { DatabaseService } from '../../../src/nest/database/database.service';
+import { RealtimeService } from '../../../src/nest/realtime/realtime.service';
+import { TrekPhotosRepository } from '../../../src/nest/photos/trek-photos.repository';
+import { JourneyDomainService } from '../../../src/nest/journey/journey-domain.service';
+import { db as dbConn } from '../../../src/db/database';
+
+const dbs = new DatabaseService(dbConn);
+const svc = new JourneyDomainService(dbs, new RealtimeService(), new TrekPhotosRepository(dbs));
 
 beforeAll(() => {
   createTables(testDb);
@@ -107,7 +82,7 @@ describe('canAccessJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'My Journey' });
 
-    const result = canAccessJourney(journey.id, user.id);
+    const result = svc.canAccessJourney(journey.id, user.id);
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(journey.id);
@@ -120,7 +95,7 @@ describe('canAccessJourney', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, contrib.id, 'editor');
 
-    const result = canAccessJourney(journey.id, contrib.id);
+    const result = svc.canAccessJourney(journey.id, contrib.id);
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe(journey.id);
@@ -131,7 +106,7 @@ describe('canAccessJourney', () => {
     const { user: stranger } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    const result = canAccessJourney(journey.id, stranger.id);
+    const result = svc.canAccessJourney(journey.id, stranger.id);
 
     expect(result).toBeNull();
   });
@@ -142,7 +117,7 @@ describe('isOwner', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    expect(isOwner(journey.id, user.id)).toBe(true);
+    expect(svc.isOwner(journey.id, user.id)).toBe(true);
   });
 
   it('JOURNEY-SVC-005: returns false for contributor', () => {
@@ -151,7 +126,7 @@ describe('isOwner', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, contrib.id, 'editor');
 
-    expect(isOwner(journey.id, contrib.id)).toBe(false);
+    expect(svc.isOwner(journey.id, contrib.id)).toBe(false);
   });
 
   it('JOURNEY-SVC-006: returns false for stranger', () => {
@@ -159,7 +134,7 @@ describe('isOwner', () => {
     const { user: stranger } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    expect(isOwner(journey.id, stranger.id)).toBe(false);
+    expect(svc.isOwner(journey.id, stranger.id)).toBe(false);
   });
 });
 
@@ -168,7 +143,7 @@ describe('canEdit', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    expect(canEdit(journey.id, user.id)).toBe(true);
+    expect(svc.canEdit(journey.id, user.id)).toBe(true);
   });
 
   it('JOURNEY-SVC-008: editor contributor can edit', () => {
@@ -177,7 +152,7 @@ describe('canEdit', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
 
-    expect(canEdit(journey.id, editor.id)).toBe(true);
+    expect(svc.canEdit(journey.id, editor.id)).toBe(true);
   });
 
   it('JOURNEY-SVC-009: viewer contributor cannot edit', () => {
@@ -186,7 +161,7 @@ describe('canEdit', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
 
-    expect(canEdit(journey.id, viewer.id)).toBe(false);
+    expect(svc.canEdit(journey.id, viewer.id)).toBe(false);
   });
 
   it('JOURNEY-SVC-010: stranger cannot edit', () => {
@@ -194,7 +169,7 @@ describe('canEdit', () => {
     const { user: stranger } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    expect(canEdit(journey.id, stranger.id)).toBe(false);
+    expect(svc.canEdit(journey.id, stranger.id)).toBe(false);
   });
 });
 
@@ -207,7 +182,7 @@ describe('listJourneys', () => {
     createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01', location_name: 'Paris' });
     createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-02', location_name: 'Lyon' });
 
-    const result = listJourneys(user.id);
+    const result = svc.listJourneys(user.id);
 
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe('Road Trip');
@@ -221,7 +196,7 @@ describe('listJourneys', () => {
     const journey = createJourney(testDb, owner.id, { title: 'Shared Trip' });
     addJourneyContributor(testDb, journey.id, contrib.id, 'editor');
 
-    const result = listJourneys(contrib.id);
+    const result = svc.listJourneys(contrib.id);
 
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe('Shared Trip');
@@ -232,7 +207,7 @@ describe('listJourneys', () => {
     const { user: other } = createUser(testDb);
     createJourney(testDb, owner.id, { title: 'Private' });
 
-    const result = listJourneys(other.id);
+    const result = svc.listJourneys(other.id);
 
     expect(result).toHaveLength(0);
   });
@@ -242,10 +217,10 @@ describe('listJourneys', () => {
     const journey = createJourney(testDb, user.id, { title: 'Multi Trip' });
     const trip1 = createTrip(testDb, user.id, { title: 'Trip A', start_date: '2025-06-01', end_date: '2025-06-10' });
     const trip2 = createTrip(testDb, user.id, { title: 'Trip B', start_date: '2026-03-15', end_date: '2026-03-20' });
-    addTripToJourney(journey.id, trip1.id, user.id);
-    addTripToJourney(journey.id, trip2.id, user.id);
+    svc.addTripToJourney(journey.id, trip1.id, user.id);
+    svc.addTripToJourney(journey.id, trip2.id, user.id);
 
-    const result = listJourneys(user.id);
+    const result = svc.listJourneys(user.id);
 
     expect(result).toHaveLength(1);
     expect(result[0].trip_date_min).toBe('2025-06-01');
@@ -257,7 +232,7 @@ describe('createJourney (service)', () => {
   it('JOURNEY-SVC-014: creates journey with contributor record', () => {
     const { user } = createUser(testDb);
 
-    const journey = svcCreateJourney(user.id, { title: 'New Journey', subtitle: 'Subtitle' });
+    const journey = svc.createJourney(user.id, { title: 'New Journey', subtitle: 'Subtitle' });
 
     expect(journey.title).toBe('New Journey');
     expect(journey.subtitle).toBe('Subtitle');
@@ -276,7 +251,7 @@ describe('createJourney (service)', () => {
     const { user } = createUser(testDb);
     const trip = createTrip(testDb, user.id, { title: 'Paris 2026' });
 
-    const journey = svcCreateJourney(user.id, { title: 'Euro Trip', trip_ids: [trip.id] });
+    const journey = svc.createJourney(user.id, { title: 'Euro Trip', trip_ids: [trip.id] });
 
     const link = testDb.prepare(
       'SELECT * FROM journey_trips WHERE journey_id = ? AND trip_id = ?'
@@ -295,7 +270,7 @@ describe('getJourneyFull', () => {
       story: 'Arrived!',
     });
 
-    const result = getJourneyFull(journey.id, user.id);
+    const result = svc.getJourneyFull(journey.id, user.id);
 
     expect(result).not.toBeNull();
     expect(result!.title).toBe('Full Journey');
@@ -310,7 +285,7 @@ describe('getJourneyFull', () => {
     const { user: stranger } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    const result = getJourneyFull(journey.id, stranger.id);
+    const result = svc.getJourneyFull(journey.id, stranger.id);
 
     expect(result).toBeNull();
   });
@@ -321,7 +296,7 @@ describe('updateJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'Old Title' });
 
-    const updated = updateJourney(journey.id, user.id, { title: 'New Title', subtitle: 'New Sub' });
+    const updated = svc.updateJourney(journey.id, user.id, { title: 'New Title', subtitle: 'New Sub' });
 
     expect(updated).not.toBeNull();
     expect(updated!.title).toBe('New Title');
@@ -336,7 +311,7 @@ describe('updateJourney', () => {
     const journey = createJourney(testDb, owner.id, { title: 'Original' });
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
 
-    const updated = updateJourney(journey.id, editor.id, { title: 'Edited' });
+    const updated = svc.updateJourney(journey.id, editor.id, { title: 'Edited' });
 
     expect(updated).toBeNull();
   });
@@ -347,7 +322,7 @@ describe('updateJourney', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
 
-    const result = updateJourney(journey.id, viewer.id, { title: 'Hacked' });
+    const result = svc.updateJourney(journey.id, viewer.id, { title: 'Hacked' });
 
     expect(result).toBeNull();
   });
@@ -356,7 +331,7 @@ describe('updateJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'Same' });
 
-    const result = updateJourney(journey.id, user.id, {});
+    const result = svc.updateJourney(journey.id, user.id, {});
 
     expect(result).not.toBeNull();
     expect(result!.title).toBe('Same');
@@ -366,7 +341,7 @@ describe('updateJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'To Archive' });
 
-    const result = updateJourney(journey.id, user.id, { status: 'archived' });
+    const result = svc.updateJourney(journey.id, user.id, { status: 'archived' });
 
     expect(result).not.toBeNull();
     expect(result!.status).toBe('archived');
@@ -376,7 +351,7 @@ describe('updateJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'Stay Active' });
 
-    const result = updateJourney(journey.id, user.id, { status: 'bogus' });
+    const result = svc.updateJourney(journey.id, user.id, { status: 'bogus' });
 
     expect(result).not.toBeNull();
     expect(result!.status).toBe('active');
@@ -388,7 +363,7 @@ describe('deleteJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const result = deleteJourney(journey.id, user.id);
+    const result = svc.deleteJourney(journey.id, user.id);
 
     expect(result).toBe(true);
     const row = testDb.prepare('SELECT * FROM journeys WHERE id = ?').get(journey.id);
@@ -401,7 +376,7 @@ describe('deleteJourney', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
 
-    const result = deleteJourney(journey.id, editor.id);
+    const result = svc.deleteJourney(journey.id, editor.id);
 
     expect(result).toBe(false);
     const row = testDb.prepare('SELECT * FROM journeys WHERE id = ?').get(journey.id);
@@ -417,7 +392,7 @@ describe('addTripToJourney / removeTripFromJourney', () => {
     const journey = createJourney(testDb, user.id);
     const trip = createTrip(testDb, user.id, { title: 'Linked Trip' });
 
-    const result = addTripToJourney(journey.id, trip.id, user.id);
+    const result = svc.addTripToJourney(journey.id, trip.id, user.id);
 
     expect(result).toBe(true);
     const link = testDb.prepare(
@@ -433,7 +408,7 @@ describe('addTripToJourney / removeTripFromJourney', () => {
     // A trip owned by someone else, that `user` is not a member of.
     const foreignTrip = createTrip(testDb, stranger.id, { title: "Stranger's Trip" });
 
-    const result = addTripToJourney(journey.id, foreignTrip.id, user.id);
+    const result = svc.addTripToJourney(journey.id, foreignTrip.id, user.id);
 
     expect(result).toBe(false);
     const link = testDb.prepare(
@@ -454,7 +429,7 @@ describe('addTripToJourney / removeTripFromJourney', () => {
     const day025 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day025.id, place.id);
 
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     const skeletons = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ? AND type = 'skeleton'"
@@ -466,9 +441,9 @@ describe('addTripToJourney / removeTripFromJourney', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const trip = createTrip(testDb, user.id, { title: 'Remove Me' });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
-    const result = removeTripFromJourney(journey.id, trip.id, user.id);
+    const result = svc.removeTripFromJourney(journey.id, trip.id, user.id);
 
     expect(result).toBe(true);
     const link = testDb.prepare(
@@ -482,10 +457,10 @@ describe('addTripToJourney / removeTripFromJourney', () => {
     const { user: editor } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
     const trip = createTrip(testDb, owner.id, { title: 'Stay Linked' });
-    addTripToJourney(journey.id, trip.id, owner.id);
+    svc.addTripToJourney(journey.id, trip.id, owner.id);
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
 
-    const result = removeTripFromJourney(journey.id, trip.id, editor.id);
+    const result = svc.removeTripFromJourney(journey.id, trip.id, editor.id);
 
     expect(result).toBe(false);
   });
@@ -502,7 +477,7 @@ describe('listEntries', () => {
       entry_date: '2026-03-01',
     });
 
-    const result = listEntries(journey.id, user.id);
+    const result = svc.listEntries(journey.id, user.id);
 
     expect(result).not.toBeNull();
     expect(result).toHaveLength(1);
@@ -515,7 +490,7 @@ describe('listEntries', () => {
     const { user: stranger } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    const result = listEntries(journey.id, stranger.id);
+    const result = svc.listEntries(journey.id, stranger.id);
 
     expect(result).toBeNull();
   });
@@ -526,7 +501,7 @@ describe('createEntry', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const entry = createEntry(journey.id, user.id, {
+    const entry = svc.createEntry(journey.id, user.id, {
       title: 'Beach Day',
       entry_date: '2026-03-10',
       story: 'Beautiful sunset',
@@ -549,7 +524,7 @@ describe('createEntry', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
 
-    const entry = createEntry(journey.id, viewer.id, {
+    const entry = svc.createEntry(journey.id, viewer.id, {
       title: 'Should Fail',
       entry_date: '2026-03-10',
     });
@@ -567,7 +542,7 @@ describe('updateEntry', () => {
       entry_date: '2026-03-01',
     });
 
-    const updated = updateEntry(entry.id, user.id, { title: 'Updated', mood: 'excited' });
+    const updated = svc.updateEntry(entry.id, user.id, { title: 'Updated', mood: 'excited' });
 
     expect(updated).not.toBeNull();
     expect(updated!.title).toBe('Updated');
@@ -583,7 +558,7 @@ describe('updateEntry', () => {
       entry_date: '2026-03-01',
     });
 
-    const updated = updateEntry(entry.id, user.id, { story: 'Now I have a story!' });
+    const updated = svc.updateEntry(entry.id, user.id, { story: 'Now I have a story!' });
 
     expect(updated).not.toBeNull();
     expect(updated!.type).toBe('entry');
@@ -593,7 +568,7 @@ describe('updateEntry', () => {
   it('JOURNEY-SVC-034: returns null for non-existent entry', () => {
     const { user } = createUser(testDb);
 
-    const result = updateEntry(99999, user.id, { title: 'No Such Entry' });
+    const result = svc.updateEntry(99999, user.id, { title: 'No Such Entry' });
 
     expect(result).toBeNull();
   });
@@ -616,7 +591,7 @@ describe('updateEntry', () => {
       author_id: 999999,
     };
 
-    const updated = updateEntry(entry.id, user.id, malicious as Parameters<typeof updateEntry>[2]);
+    const updated = svc.updateEntry(entry.id, user.id, malicious as Parameters<typeof updateEntry>[2]);
 
     expect(updated).not.toBeNull();
     expect(updated!.title).toBe('Updated'); // legit field still applied
@@ -631,7 +606,7 @@ describe('deleteEntry', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    const result = deleteEntry(entry.id, user.id);
+    const result = svc.deleteEntry(entry.id, user.id);
 
     expect(result).toBe(true);
     const row = testDb.prepare('SELECT * FROM journey_entries WHERE id = ?').get(entry.id);
@@ -641,7 +616,7 @@ describe('deleteEntry', () => {
   it('JOURNEY-SVC-036: returns false for non-existent entry', () => {
     const { user } = createUser(testDb);
 
-    expect(deleteEntry(99999, user.id)).toBe(false);
+    expect(svc.deleteEntry(99999, user.id)).toBe(false);
   });
 
   it('JOURNEY-SVC-037: viewer cannot delete entry', () => {
@@ -651,7 +626,7 @@ describe('deleteEntry', () => {
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
     const entry = createJourneyEntry(testDb, journey.id, owner.id, { entry_date: '2026-03-01' });
 
-    expect(deleteEntry(entry.id, viewer.id)).toBe(false);
+    expect(svc.deleteEntry(entry.id, viewer.id)).toBe(false);
   });
 
   it('JOURNEY-SVC-037b: deleting a filled skeleton reverts it back to skeleton', () => {
@@ -668,7 +643,7 @@ describe('deleteEntry', () => {
     `).run(journey.id, trip.id, place.id, user.id, now, now);
     const entry = testDb.prepare('SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ?').get(journey.id, place.id) as any;
 
-    const result = deleteEntry(entry.id, user.id);
+    const result = svc.deleteEntry(entry.id, user.id);
     expect(result).toBe(true);
 
     // Entry should still exist but reverted to skeleton
@@ -687,7 +662,7 @@ describe('deleteEntry', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01', story: 'Manual entry' });
 
-    const result = deleteEntry(entry.id, user.id);
+    const result = svc.deleteEntry(entry.id, user.id);
     expect(result).toBe(true);
 
     const row = testDb.prepare('SELECT * FROM journey_entries WHERE id = ?').get(entry.id);
@@ -703,7 +678,7 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    const photo = addPhoto(entry.id, user.id, '/uploads/photo.jpg', '/uploads/thumb.jpg', 'Sunset');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/photo.jpg', '/uploads/thumb.jpg', 'Sunset');
 
     expect(photo).not.toBeNull();
     expect(photo!.file_path).toBe('/uploads/photo.jpg');
@@ -715,7 +690,7 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
   it('JOURNEY-SVC-039: addPhoto returns null for non-existent entry', () => {
     const { user } = createUser(testDb);
 
-    const result = addPhoto(99999, user.id, '/uploads/photo.jpg');
+    const result = svc.addPhoto(99999, user.id, '/uploads/photo.jpg');
 
     expect(result).toBeNull();
   });
@@ -725,7 +700,7 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    const photo = addProviderPhoto(entry.id, user.id, 'immich', 'asset-123', 'My caption');
+    const photo = svc.addProviderPhoto(entry.id, user.id, 'immich', 'asset-123', 'My caption');
 
     expect(photo).not.toBeNull();
     expect(photo!.provider).toBe('immich');
@@ -738,8 +713,8 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    addProviderPhoto(entry.id, user.id, 'immich', 'dup-asset');
-    const duplicate = addProviderPhoto(entry.id, user.id, 'immich', 'dup-asset');
+    svc.addProviderPhoto(entry.id, user.id, 'immich', 'dup-asset');
+    const duplicate = svc.addProviderPhoto(entry.id, user.id, 'immich', 'dup-asset');
 
     expect(duplicate).toBeNull();
   });
@@ -748,9 +723,9 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/delete-me.jpg');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/delete-me.jpg');
 
-    const deleted = deletePhoto(photo!.id, user.id);
+    const deleted = svc.deletePhoto(photo!.id, user.id);
 
     expect(deleted).not.toBeNull();
     expect(deleted!.id).toBe(photo!.id);
@@ -761,7 +736,7 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
   it('JOURNEY-SVC-043: deletePhoto returns null for non-existent photo', () => {
     const { user } = createUser(testDb);
 
-    expect(deletePhoto(99999, user.id)).toBeNull();
+    expect(svc.deletePhoto(99999, user.id)).toBeNull();
   });
 
   it('JOURNEY-SVC-044: viewer cannot add photo', () => {
@@ -771,7 +746,7 @@ describe('addPhoto / addProviderPhoto / deletePhoto', () => {
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
     const entry = createJourneyEntry(testDb, journey.id, owner.id, { entry_date: '2026-03-01' });
 
-    const result = addPhoto(entry.id, viewer.id, '/uploads/no.jpg');
+    const result = svc.addPhoto(entry.id, viewer.id, '/uploads/no.jpg');
 
     expect(result).toBeNull();
   });
@@ -785,7 +760,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     const { user: newContrib } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    const result = addContributor(journey.id, owner.id, newContrib.id, 'editor');
+    const result = svc.addContributor(journey.id, owner.id, newContrib.id, 'editor');
 
     expect(result).toBe(true);
     const row = testDb.prepare(
@@ -802,7 +777,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
 
-    const result = addContributor(journey.id, editor.id, newUser.id, 'viewer');
+    const result = svc.addContributor(journey.id, editor.id, newUser.id, 'viewer');
 
     expect(result).toBe(false);
   });
@@ -811,7 +786,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     const { user: owner } = createUser(testDb);
     const journey = createJourney(testDb, owner.id);
 
-    const result = addContributor(journey.id, owner.id, owner.id, 'editor');
+    const result = svc.addContributor(journey.id, owner.id, owner.id, 'editor');
 
     expect(result).toBe(false);
   });
@@ -822,7 +797,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, contrib.id, 'viewer');
 
-    const result = updateContributorRole(journey.id, owner.id, contrib.id, 'editor');
+    const result = svc.updateContributorRole(journey.id, owner.id, contrib.id, 'editor');
 
     expect(result).toBe(true);
     const row = testDb.prepare(
@@ -839,7 +814,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     addJourneyContributor(testDb, journey.id, editor.id, 'editor');
     addJourneyContributor(testDb, journey.id, target.id, 'viewer');
 
-    const result = updateContributorRole(journey.id, editor.id, target.id, 'editor');
+    const result = svc.updateContributorRole(journey.id, editor.id, target.id, 'editor');
 
     expect(result).toBe(false);
   });
@@ -850,7 +825,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, contrib.id, 'editor');
 
-    const result = removeContributor(journey.id, owner.id, contrib.id);
+    const result = svc.removeContributor(journey.id, owner.id, contrib.id);
 
     expect(result).toBe(true);
     const row = testDb.prepare(
@@ -865,7 +840,7 @@ describe('addContributor / updateContributorRole / removeContributor', () => {
 
     // attempting to remove the owner's own contributor record should not work
     // (the SQL filters role != 'owner')
-    removeContributor(journey.id, owner.id, owner.id);
+    svc.removeContributor(journey.id, owner.id, owner.id);
 
     const row = testDb.prepare(
       'SELECT * FROM journey_contributors WHERE journey_id = ? AND user_id = ?'
@@ -888,7 +863,7 @@ describe('getSuggestions', () => {
       end_date: fiveDaysAgo,
     });
 
-    const suggestions = getSuggestions(user.id);
+    const suggestions = svc.getSuggestions(user.id);
 
     expect(suggestions.length).toBe(1);
     expect((suggestions[0] as any).title).toBe('Recent Trip');
@@ -904,9 +879,9 @@ describe('getSuggestions', () => {
       end_date: fiveDaysAgo,
     });
     const journey = createJourney(testDb, user.id);
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
-    const suggestions = getSuggestions(user.id);
+    const suggestions = svc.getSuggestions(user.id);
 
     expect(suggestions.length).toBe(0);
   });
@@ -920,7 +895,7 @@ describe('getSuggestions', () => {
       end_date: tomorrow,
     });
 
-    const suggestions = getSuggestions(user.id);
+    const suggestions = svc.getSuggestions(user.id);
 
     expect(suggestions.length).toBe(0);
   });
@@ -943,7 +918,7 @@ describe('syncTripPlaces', () => {
     createDayAssignment(testDb, days055[0].id, place1.id);
     createDayAssignment(testDb, days055[1].id, place2.id);
 
-    syncTripPlaces(journey.id, trip.id, user.id);
+    svc.syncTripPlaces(journey.id, trip.id, user.id);
 
     const skeletons = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND type = 'skeleton'"
@@ -965,8 +940,8 @@ describe('syncTripPlaces', () => {
     const day056 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day056.id, place056.id);
 
-    syncTripPlaces(journey.id, trip.id, user.id);
-    syncTripPlaces(journey.id, trip.id, user.id); // second call
+    svc.syncTripPlaces(journey.id, trip.id, user.id);
+    svc.syncTripPlaces(journey.id, trip.id, user.id); // second call
 
     const skeletons = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND type = 'skeleton'"
@@ -989,7 +964,7 @@ describe('syncTripPlaces', () => {
     const place = createPlace(testDb, trip.id, { name: 'Colosseum' });
     createDayAssignment(testDb, day.id, place.id);
 
-    syncTripPlaces(journey.id, trip.id, user.id);
+    svc.syncTripPlaces(journey.id, trip.id, user.id);
 
     const skeleton = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ?"
@@ -1010,13 +985,13 @@ describe('onPlaceCreated', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-03',
     });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Create a new place after trip is linked
     const place = createPlace(testDb, trip.id, { name: 'Sagrada Familia' });
     const day058 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day058.id, place.id);
-    onPlaceCreated(trip.id, place.id);
+    svc.onPlaceCreated(trip.id, place.id);
 
     const skeleton = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ? AND type = 'skeleton'"
@@ -1029,7 +1004,7 @@ describe('onPlaceCreated', () => {
     const trip = createTrip(testDb, user.id, { title: 'Unlinked Trip' });
     const place = createPlace(testDb, trip.id, { name: 'Remote Place' });
 
-    onPlaceCreated(trip.id, place.id);
+    svc.onPlaceCreated(trip.id, place.id);
 
     const entries = testDb.prepare(
       "SELECT * FROM journey_entries WHERE source_place_id = ?"
@@ -1045,13 +1020,13 @@ describe('onPlaceCreated', () => {
       start_date: '2026-07-01',
       end_date: '2026-07-02',
     });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     const place = createPlace(testDb, trip.id, { name: 'Arc de Triomphe' });
     const day060 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day060.id, place.id);
-    onPlaceCreated(trip.id, place.id);
-    onPlaceCreated(trip.id, place.id); // second call
+    svc.onPlaceCreated(trip.id, place.id);
+    svc.onPlaceCreated(trip.id, place.id); // second call
 
     const entries = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ?"
@@ -1072,11 +1047,11 @@ describe('onPlaceUpdated', () => {
     const place = createPlace(testDb, trip.id, { name: 'Old Name' });
     const day061 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day061.id, place.id);
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Update the place name directly in DB
     testDb.prepare('UPDATE places SET name = ?, address = ? WHERE id = ?').run('New Name', 'New Address', place.id);
-    onPlaceUpdated(place.id);
+    svc.onPlaceUpdated(place.id);
 
     const entry = testDb.prepare(
       "SELECT * FROM journey_entries WHERE journey_id = ? AND source_place_id = ? AND type = 'skeleton'"
@@ -1097,17 +1072,17 @@ describe('onPlaceUpdated', () => {
     const place = createPlace(testDb, trip.id, { name: 'Original Place' });
     const day062 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day062.id, place.id);
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Promote the skeleton to a full entry
     const skeleton = testDb.prepare(
       "SELECT id FROM journey_entries WHERE journey_id = ? AND source_place_id = ?"
     ).get(journey.id, place.id) as { id: number };
-    updateEntry(skeleton.id, user.id, { story: 'My story', title: 'Custom Title' });
+    svc.updateEntry(skeleton.id, user.id, { story: 'My story', title: 'Custom Title' });
 
     // Now update the place
     testDb.prepare('UPDATE places SET name = ?, address = ? WHERE id = ?').run('Changed Place', 'Changed Addr', place.id);
-    onPlaceUpdated(place.id);
+    svc.onPlaceUpdated(place.id);
 
     const entry = testDb.prepare(
       "SELECT * FROM journey_entries WHERE id = ?"
@@ -1122,7 +1097,7 @@ describe('onPlaceUpdated', () => {
     const place = createPlace(testDb, trip.id, { name: 'Orphan Place' });
 
     // Should not throw
-    onPlaceUpdated(place.id);
+    svc.onPlaceUpdated(place.id);
 
     const entries = testDb.prepare(
       "SELECT * FROM journey_entries WHERE source_place_id = ?"
@@ -1141,9 +1116,9 @@ describe('onPlaceDeleted', () => {
       end_date: '2026-09-02',
     });
     const place = createPlace(testDb, trip.id, { name: 'To Be Deleted' });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
-    onPlaceDeleted(place.id);
+    svc.onPlaceDeleted(place.id);
 
     const entry = testDb.prepare(
       "SELECT * FROM journey_entries WHERE source_place_id = ?"
@@ -1162,15 +1137,15 @@ describe('onPlaceDeleted', () => {
     const place = createPlace(testDb, trip.id, { name: 'Detach Place' });
     const day065 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number };
     createDayAssignment(testDb, day065.id, place.id);
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Promote the skeleton to a filled entry
     const skeleton = testDb.prepare(
       "SELECT id FROM journey_entries WHERE journey_id = ? AND source_place_id = ?"
     ).get(journey.id, place.id) as { id: number };
-    updateEntry(skeleton.id, user.id, { story: 'I really enjoyed this place' });
+    svc.updateEntry(skeleton.id, user.id, { story: 'I really enjoyed this place' });
 
-    onPlaceDeleted(place.id);
+    svc.onPlaceDeleted(place.id);
 
     const entry = testDb.prepare(
       "SELECT * FROM journey_entries WHERE id = ?"
@@ -1187,7 +1162,7 @@ describe('onPlaceDeleted', () => {
     const place = createPlace(testDb, trip.id, { name: 'Nowhere' });
 
     // Should not throw
-    onPlaceDeleted(place.id);
+    svc.onPlaceDeleted(place.id);
   });
 });
 
@@ -1200,10 +1175,10 @@ describe('linkPhotoToEntry', () => {
     const entry1 = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
     const entry2 = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-02' });
 
-    const photo = addPhoto(entry1.id, user.id, '/uploads/link-test.jpg');
+    const photo = svc.addPhoto(entry1.id, user.id, '/uploads/link-test.jpg');
     expect(photo).not.toBeNull();
 
-    const result = linkPhotoToEntry(entry2.id, photo!.id, user.id);
+    const result = svc.linkPhotoToEntry(entry2.id, photo!.id, user.id);
     expect(result).not.toBeNull();
     expect(result!.entry_id).toBe(entry2.id);
   });
@@ -1212,9 +1187,9 @@ describe('linkPhotoToEntry', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/same-entry.jpg');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/same-entry.jpg');
 
-    const result = linkPhotoToEntry(entry.id, photo!.id, user.id);
+    const result = svc.linkPhotoToEntry(entry.id, photo!.id, user.id);
     expect(result).not.toBeNull();
     expect(result!.id).toBe(photo!.id);
     expect(result!.entry_id).toBe(entry.id);
@@ -1223,7 +1198,7 @@ describe('linkPhotoToEntry', () => {
   it('JOURNEY-SVC-069: returns null for non-existent entry', () => {
     const { user } = createUser(testDb);
 
-    const result = linkPhotoToEntry(99999, 1, user.id);
+    const result = svc.linkPhotoToEntry(99999, 1, user.id);
     expect(result).toBeNull();
   });
 
@@ -1232,7 +1207,7 @@ describe('linkPhotoToEntry', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    const result = linkPhotoToEntry(entry.id, 99999, user.id);
+    const result = svc.linkPhotoToEntry(entry.id, 99999, user.id);
     expect(result).toBeNull();
   });
 
@@ -1242,9 +1217,9 @@ describe('linkPhotoToEntry', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
     const entry = createJourneyEntry(testDb, journey.id, owner.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, owner.id, '/uploads/owner-photo.jpg');
+    const photo = svc.addPhoto(entry.id, owner.id, '/uploads/owner-photo.jpg');
 
-    const result = linkPhotoToEntry(entry.id, photo!.id, viewer.id);
+    const result = svc.linkPhotoToEntry(entry.id, photo!.id, viewer.id);
     expect(result).toBeNull();
   });
 });
@@ -1256,9 +1231,9 @@ describe('setPhotoProvider', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/provider-test.jpg');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/provider-test.jpg');
 
-    setPhotoProvider(photo!.id, 'immich', 'immich-asset-789', user.id);
+    svc.setPhotoProvider(photo!.id, 'immich', 'immich-asset-789', user.id);
 
     const updated = testDb.prepare(`
       SELECT jp.*, tkp.provider, tkp.asset_id, tkp.owner_id
@@ -1278,9 +1253,9 @@ describe('updatePhoto', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/caption-test.jpg', undefined, 'Old caption');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/caption-test.jpg', undefined, 'Old caption');
 
-    const result = updatePhoto(photo!.id, user.id, { caption: 'New caption' });
+    const result = svc.updatePhoto(photo!.id, user.id, { caption: 'New caption' });
 
     expect(result).not.toBeNull();
     expect(result!.caption).toBe('New caption');
@@ -1290,9 +1265,9 @@ describe('updatePhoto', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/sort-test.jpg');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/sort-test.jpg');
 
-    const result = updatePhoto(photo!.id, user.id, { sort_order: 10 });
+    const result = svc.updatePhoto(photo!.id, user.id, { sort_order: 10 });
 
     expect(result).not.toBeNull();
     expect(result!.sort_order).toBe(10);
@@ -1301,7 +1276,7 @@ describe('updatePhoto', () => {
   it('JOURNEY-SVC-075: returns null for non-existent photo', () => {
     const { user } = createUser(testDb);
 
-    const result = updatePhoto(99999, user.id, { caption: 'Nope' });
+    const result = svc.updatePhoto(99999, user.id, { caption: 'Nope' });
     expect(result).toBeNull();
   });
 
@@ -1309,9 +1284,9 @@ describe('updatePhoto', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/noop-test.jpg', undefined, 'Stay');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/noop-test.jpg', undefined, 'Stay');
 
-    const result = updatePhoto(photo!.id, user.id, {});
+    const result = svc.updatePhoto(photo!.id, user.id, {});
 
     expect(result).not.toBeNull();
     expect(result!.caption).toBe('Stay');
@@ -1323,9 +1298,9 @@ describe('updatePhoto', () => {
     const journey = createJourney(testDb, owner.id);
     addJourneyContributor(testDb, journey.id, viewer.id, 'viewer');
     const entry = createJourneyEntry(testDb, journey.id, owner.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, owner.id, '/uploads/viewer-update.jpg');
+    const photo = svc.addPhoto(entry.id, owner.id, '/uploads/viewer-update.jpg');
 
-    const result = updatePhoto(photo!.id, viewer.id, { caption: 'Hacked' });
+    const result = svc.updatePhoto(photo!.id, viewer.id, { caption: 'Hacked' });
     expect(result).toBeNull();
   });
 });
@@ -1338,7 +1313,7 @@ describe('listUserTrips', () => {
     createTrip(testDb, user.id, { title: 'Trip A', start_date: '2026-01-01', end_date: '2026-01-03' });
     createTrip(testDb, user.id, { title: 'Trip B', start_date: '2026-02-01', end_date: '2026-02-03' });
 
-    const trips = listUserTrips(user.id);
+    const trips = svc.listUserTrips(user.id);
 
     expect(trips.length).toBe(2);
     // ordered by start_date DESC
@@ -1349,7 +1324,7 @@ describe('listUserTrips', () => {
   it('JOURNEY-SVC-079: returns empty for user with no trips', () => {
     const { user } = createUser(testDb);
 
-    const trips = listUserTrips(user.id);
+    const trips = svc.listUserTrips(user.id);
 
     expect(trips.length).toBe(0);
   });
@@ -1359,7 +1334,7 @@ describe('listUserTrips', () => {
     const { user: user2 } = createUser(testDb);
     createTrip(testDb, user1.id, { title: 'User1 Trip' });
 
-    const trips = listUserTrips(user2.id);
+    const trips = svc.listUserTrips(user2.id);
 
     expect(trips.length).toBe(0);
   });
@@ -1372,9 +1347,9 @@ describe('Edge cases', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
-    const photo = addPhoto(entry.id, user.id, '/uploads/gallery-move.jpg');
+    const photo = svc.addPhoto(entry.id, user.id, '/uploads/gallery-move.jpg');
 
-    const result = deleteEntry(entry.id, user.id);
+    const result = svc.deleteEntry(entry.id, user.id);
     expect(result).toBe(true);
 
     // Junction row must be gone (ON DELETE CASCADE from journey_entries).
@@ -1387,7 +1362,7 @@ describe('Edge cases', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const result = updateJourney(journey.id, user.id, { cover_gradient: 'linear-gradient(to right, #ff0000, #0000ff)' });
+    const result = svc.updateJourney(journey.id, user.id, { cover_gradient: 'linear-gradient(to right, #ff0000, #0000ff)' });
 
     expect(result).not.toBeNull();
     expect((result as any).cover_gradient).toBe('linear-gradient(to right, #ff0000, #0000ff)');
@@ -1397,7 +1372,7 @@ describe('Edge cases', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'Original' });
 
-    const result = updateJourney(journey.id, user.id, { bogus: 'field' } as any);
+    const result = svc.updateJourney(journey.id, user.id, { bogus: 'field' } as any);
 
     expect(result).not.toBeNull();
     expect(result!.title).toBe('Original');
@@ -1407,7 +1382,7 @@ describe('Edge cases', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const entry = createEntry(journey.id, user.id, {
+    const entry = svc.createEntry(journey.id, user.id, {
       entry_date: '2026-03-10',
       tags: ['food', 'culture'],
       pros_cons: { pros: ['Great view'], cons: ['Expensive'] },
@@ -1425,7 +1400,7 @@ describe('Edge cases', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-01' });
 
-    const result = updateEntry(entry.id, user.id, {
+    const result = svc.updateEntry(entry.id, user.id, {
       tags: ['beach', 'adventure'],
       pros_cons: { pros: ['Fun'], cons: [] },
     });
@@ -1446,7 +1421,7 @@ describe('Edge cases', () => {
     });
     addTripPhoto(testDb, trip.id, user.id, 'immich-photo-1', 'immich', { shared: true });
 
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Trip photos now go straight into the journey gallery (no wrapper entry).
     const photos = testDb.prepare(`
@@ -1471,15 +1446,15 @@ describe('Edge cases', () => {
     const days087 = testDb.prepare('SELECT id FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 2').all(trip.id) as { id: number }[];
     createDayAssignment(testDb, days087[0].id, place1.id);
     createDayAssignment(testDb, days087[1].id, place2.id);
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     // Promote one skeleton to a filled entry
     const filled = testDb.prepare(
       "SELECT id FROM journey_entries WHERE journey_id = ? AND source_place_id = ? AND type = 'skeleton'"
     ).get(journey.id, place2.id) as { id: number };
-    updateEntry(filled.id, user.id, { story: 'Now filled!' });
+    svc.updateEntry(filled.id, user.id, { story: 'Now filled!' });
 
-    removeTripFromJourney(journey.id, trip.id, user.id);
+    svc.removeTripFromJourney(journey.id, trip.id, user.id);
 
     // skeleton for place1 should be deleted
     const skeletonRow = testDb.prepare(
@@ -1505,7 +1480,7 @@ describe('addProviderPhoto — passphrase', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id, { entry_date: '2026-03-15' });
 
-    const photo = addProviderPhoto(entry.id, user.id, 'synologyphotos', 'pp-asset-1', undefined, 'secret-pp');
+    const photo = svc.addProviderPhoto(entry.id, user.id, 'synologyphotos', 'pp-asset-1', undefined, 'secret-pp');
 
     expect(photo).not.toBeNull();
 
@@ -1536,10 +1511,10 @@ describe('reorderEntries', () => {
     const e1 = insertEntry(journey.id, user.id, { entry_date: '2026-08-01', entry_time: '09:00', sort_order: 0 });
     const e2 = insertEntry(journey.id, user.id, { entry_date: '2026-08-01', entry_time: '14:00', sort_order: 1 });
 
-    const ok = reorderEntries(journey.id, user.id, [e2.id, e1.id]);
+    const ok = svc.reorderEntries(journey.id, user.id, [e2.id, e1.id]);
     expect(ok).toBe(true);
 
-    const entries = listEntries(journey.id, user.id)!;
+    const entries = svc.listEntries(journey.id, user.id)!;
     const dayEntries = entries.filter(e => e.entry_date === '2026-08-01');
     expect(dayEntries.map(e => e.id)).toEqual([e2.id, e1.id]);
   });
@@ -1550,7 +1525,7 @@ describe('reorderEntries', () => {
     const j2 = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, j2.id, user.id, { entry_date: '2026-08-02' });
 
-    const ok = reorderEntries(j1.id, user.id, [entry.id]);
+    const ok = svc.reorderEntries(j1.id, user.id, [entry.id]);
     expect(ok).toBe(false);
   });
 
@@ -1561,9 +1536,9 @@ describe('reorderEntries', () => {
     const day1b = insertEntry(journey.id, user.id, { entry_date: '2026-08-01', sort_order: 1 });
     const day2 = insertEntry(journey.id, user.id, { entry_date: '2026-08-02', sort_order: 0 });
 
-    reorderEntries(journey.id, user.id, [day1b.id, day1a.id]);
+    svc.reorderEntries(journey.id, user.id, [day1b.id, day1a.id]);
 
-    const entries = listEntries(journey.id, user.id)!;
+    const entries = svc.listEntries(journey.id, user.id)!;
     const day2Entry = entries.find(e => e.id === day2.id)!;
     expect(day2Entry.sort_order).toBe(0);
   });
@@ -1586,7 +1561,7 @@ describe('syncTripPlaces sort_order', () => {
     createDayAssignment(testDb, day.id, p2.id);
     createDayAssignment(testDb, day.id, p3.id);
 
-    syncTripPlaces(journey.id, trip.id, user.id);
+    svc.syncTripPlaces(journey.id, trip.id, user.id);
 
     const rows = testDb.prepare(
       'SELECT sort_order FROM journey_entries WHERE journey_id = ? ORDER BY sort_order ASC'
@@ -1606,14 +1581,14 @@ describe('onPlaceCreated sort_order', () => {
       start_date: '2026-10-01',
       end_date: '2026-10-02',
     });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
 
     const day = testDb.prepare('SELECT id, date FROM days WHERE trip_id = ? ORDER BY date ASC LIMIT 1').get(trip.id) as { id: number; date: string };
     insertEntry(journey.id, user.id, { entry_date: day.date, sort_order: 5 });
 
     const place = createPlace(testDb, trip.id, { name: 'Late Addition' });
     createDayAssignment(testDb, day.id, place.id);
-    onPlaceCreated(trip.id, place.id);
+    svc.onPlaceCreated(trip.id, place.id);
 
     const newEntry = testDb.prepare(
       'SELECT sort_order FROM journey_entries WHERE journey_id = ? AND source_place_id = ?'
@@ -1635,7 +1610,7 @@ describe('reconcileTripSkeletons', () => {
       start_date: '2026-05-01',
       end_date: '2026-05-03',
     });
-    addTripToJourney(journey.id, trip.id, user.id);
+    svc.addTripToJourney(journey.id, trip.id, user.id);
     return { user, journey, trip };
   }
 
@@ -1658,7 +1633,7 @@ describe('reconcileTripSkeletons', () => {
     const place = createPlace(testDb, trip.id, { name: 'New Museum' });
     createDayAssignment(testDb, days[0].id, place.id);
 
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
 
     const skeleton = skeletonFor(journey.id, place.id);
     expect(skeleton).toBeDefined();
@@ -1672,11 +1647,11 @@ describe('reconcileTripSkeletons', () => {
     const days = daysOf(trip.id);
     const place = createPlace(testDb, trip.id, { name: 'To Remove' });
     const assignment = createDayAssignment(testDb, days[0].id, place.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
     expect(skeletonFor(journey.id, place.id)).toBeDefined();
 
     testDb.prepare('DELETE FROM day_assignments WHERE id = ?').run(assignment.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
 
     expect(skeletonFor(journey.id, place.id)).toBeUndefined();
   });
@@ -1686,7 +1661,7 @@ describe('reconcileTripSkeletons', () => {
     const days = daysOf(trip.id);
     const place = createPlace(testDb, trip.id, { name: 'Filled Place' });
     const assignment = createDayAssignment(testDb, days[0].id, place.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
     const skeleton = skeletonFor(journey.id, place.id);
     // Promote to a filled entry with content.
     testDb
@@ -1694,7 +1669,7 @@ describe('reconcileTripSkeletons', () => {
       .run(skeleton.id);
 
     testDb.prepare('DELETE FROM day_assignments WHERE id = ?').run(assignment.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
 
     const kept = testDb.prepare('SELECT * FROM journey_entries WHERE id = ?').get(skeleton.id) as any;
     expect(kept).toBeDefined();
@@ -1710,11 +1685,11 @@ describe('reconcileTripSkeletons', () => {
     const days = daysOf(trip.id);
     const place = createPlace(testDb, trip.id, { name: 'Moving Place' });
     const assignment = createDayAssignment(testDb, days[0].id, place.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
     expect(skeletonFor(journey.id, place.id).entry_date).toBe(days[0].date);
 
     testDb.prepare('UPDATE day_assignments SET day_id = ? WHERE id = ?').run(days[1].id, assignment.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
 
     expect(skeletonFor(journey.id, place.id).entry_date).toBe(days[1].date);
   });
@@ -1724,12 +1699,12 @@ describe('reconcileTripSkeletons', () => {
     const days = daysOf(trip.id);
     const place = createPlace(testDb, trip.id, { name: 'Stable Place' });
     createDayAssignment(testDb, days[0].id, place.id);
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
 
     const before = testDb
       .prepare('SELECT id, updated_at FROM journey_entries WHERE journey_id = ? ORDER BY id')
       .all(journey.id) as { id: number; updated_at: number }[];
-    reconcileTripSkeletons(trip.id);
+    svc.reconcileTripSkeletons(trip.id);
     const after = testDb
       .prepare('SELECT id, updated_at FROM journey_entries WHERE journey_id = ? ORDER BY id')
       .all(journey.id) as { id: number; updated_at: number }[];
@@ -1744,8 +1719,293 @@ describe('reconcileTripSkeletons', () => {
     const place = createPlace(testDb, trip.id, { name: 'Orphan' });
     createDayAssignment(testDb, days[0].id, place.id);
 
-    expect(() => reconcileTripSkeletons(trip.id)).not.toThrow();
+    expect(() => svc.reconcileTripSkeletons(trip.id)).not.toThrow();
     const anyEntry = testDb.prepare('SELECT COUNT(*) AS n FROM journey_entries').get() as { n: number };
     expect(anyEntry.n).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Skeleton lifecycle, the photo gallery and the per-user preference row. These
+// paths were reachable only through the REST controller before the fold, so the
+// service-level branches below had no direct case.
+// ---------------------------------------------------------------------------
+
+/** A trip with one day and one place assigned to it — the shape skeleton sync reads. */
+function tripWithPlace(userId: number, opts: { name?: string; date?: string } = {}) {
+  const trip = createTrip(testDb, userId);
+  const day = createDay(testDb, trip.id, { date: opts.date ?? '2026-05-01' });
+  const place = createPlace(testDb, trip.id, { name: opts.name ?? 'Fushimi Inari' });
+  createDayAssignment(testDb, day.id, place.id);
+  return { trip, day, place };
+}
+
+function skeletonsOf(journeyId: number) {
+  return testDb
+    .prepare("SELECT * FROM journey_entries WHERE journey_id = ? AND type = 'skeleton' ORDER BY id")
+    .all(journeyId) as any[];
+}
+
+describe('skeleton sync', () => {
+  it('JOURNEY-SVC-SKEL-001: linking a trip materialises one skeleton per assigned place', () => {
+    const { user } = createUser(testDb);
+    const { trip, place } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+
+    const skeletons = skeletonsOf(journey.id);
+    expect(skeletons).toHaveLength(1);
+    expect(skeletons[0].title).toBe('Fushimi Inari');
+    expect(skeletons[0].source_place_id).toBe(place.id);
+    expect(skeletons[0].source_trip_id).toBe(trip.id);
+  });
+
+  it('JOURNEY-SVC-SKEL-002: syncing the same trip twice does not duplicate skeletons', () => {
+    const { user } = createUser(testDb);
+    const { trip } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+    svc.syncTripPlaces(journey.id, trip.id, user.id);
+    expect(skeletonsOf(journey.id)).toHaveLength(1);
+  });
+
+  it('JOURNEY-SVC-SKEL-003: onPlaceCreated adds a skeleton to every journey the trip is linked to', () => {
+    const { user } = createUser(testDb);
+    const { trip, day } = tripWithPlace(user.id);
+    const a = svc.createJourney(user.id, { title: 'A', trip_ids: [trip.id] });
+    const b = svc.createJourney(user.id, { title: 'B', trip_ids: [trip.id] });
+
+    const extra = createPlace(testDb, trip.id, { name: 'Nishiki Market' });
+    createDayAssignment(testDb, day.id, extra.id);
+    svc.onPlaceCreated(trip.id, extra.id);
+
+    for (const j of [a, b]) {
+      expect(skeletonsOf(j.id).map((s) => s.title)).toContain('Nishiki Market');
+    }
+  });
+
+  it('JOURNEY-SVC-SKEL-004: onPlaceCreated is a no-op for a trip in no journey', () => {
+    const { user } = createUser(testDb);
+    const { trip, place } = tripWithPlace(user.id);
+    expect(() => svc.onPlaceCreated(trip.id, place.id)).not.toThrow();
+  });
+
+  it('JOURNEY-SVC-SKEL-005: onPlaceUpdated carries the rename and the new address onto the skeleton', () => {
+    const { user } = createUser(testDb);
+    const { trip, place } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+
+    testDb.prepare('UPDATE places SET name = ?, address = ? WHERE id = ?').run('Kinkaku-ji', '1 Kinkakujicho', place.id);
+    svc.onPlaceUpdated(place.id);
+
+    const [skeleton] = skeletonsOf(journey.id);
+    expect(skeleton.title).toBe('Kinkaku-ji');
+    expect(skeleton.location_name).toBe('1 Kinkakujicho');
+  });
+
+  it('JOURNEY-SVC-SKEL-006: onPlaceUpdated is a no-op when no skeleton points at the place', () => {
+    const { user } = createUser(testDb);
+    const { place } = tripWithPlace(user.id);
+    expect(() => svc.onPlaceUpdated(place.id)).not.toThrow();
+  });
+
+  it('JOURNEY-SVC-SKEL-007: onPlaceDeleted drops an empty skeleton outright', () => {
+    const { user } = createUser(testDb);
+    const { trip, place } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+    expect(skeletonsOf(journey.id)).toHaveLength(1);
+
+    svc.onPlaceDeleted(place.id);
+    expect(skeletonsOf(journey.id)).toHaveLength(0);
+  });
+
+  it('JOURNEY-SVC-SKEL-008: onPlaceDeleted keeps a skeleton that has a story, detaches it and appends the note', () => {
+    const { user } = createUser(testDb);
+    const { trip, place } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+    const [skeleton] = skeletonsOf(journey.id);
+    testDb.prepare('UPDATE journey_entries SET story = ? WHERE id = ?').run('We queued for an hour.', skeleton.id);
+
+    svc.onPlaceDeleted(place.id);
+
+    const kept = testDb.prepare('SELECT * FROM journey_entries WHERE id = ?').get(skeleton.id) as any;
+    expect(kept).toBeDefined();
+    expect(kept.source_place_id).toBeNull();
+    expect(kept.source_trip_id).toBeNull();
+    // A skeleton that survives is promoted to a real entry.
+    expect(kept.type).toBe('entry');
+    expect(kept.story).toContain('removed from the trip plan');
+  });
+
+  it('JOURNEY-SVC-SKEL-009: reconcileTripSkeletons adds what is missing and removes what is gone', () => {
+    const { user } = createUser(testDb);
+    const { trip, day, place } = tripWithPlace(user.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+
+    // A second place lands without firing the hook, and the first is unassigned.
+    const second = createPlace(testDb, trip.id, { name: 'Gion' });
+    createDayAssignment(testDb, day.id, second.id);
+    testDb.prepare('DELETE FROM day_assignments WHERE place_id = ?').run(place.id);
+
+    svc.reconcileTripSkeletons(trip.id);
+
+    const titles = skeletonsOf(journey.id).map((s) => s.title);
+    expect(titles).toContain('Gion');
+    expect(titles).not.toContain('Fushimi Inari');
+  });
+
+  it('JOURNEY-SVC-SKEL-010: reconcileTripSkeletons is a no-op for a trip in no journey', () => {
+    const { user } = createUser(testDb);
+    const { trip } = tripWithPlace(user.id);
+    expect(() => svc.reconcileTripSkeletons(trip.id)).not.toThrow();
+  });
+
+  it('JOURNEY-SVC-SKEL-011: createJourney takes its cover from the first linked trip and strips the /uploads prefix', () => {
+    const { user } = createUser(testDb);
+    const trip = createTrip(testDb, user.id);
+    testDb.prepare('UPDATE trips SET cover_image = ? WHERE id = ?').run('/uploads/covers/kyoto.jpg', trip.id);
+
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+    const row = testDb.prepare('SELECT cover_image FROM journeys WHERE id = ?').get(journey.id) as any;
+    expect(row.cover_image).toBe('covers/kyoto.jpg');
+  });
+});
+
+describe('journey gallery', () => {
+  function ownedEntry() {
+    const { user } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    const entry = svc.createEntry(journey.id, user.id, { entry_date: '2026-05-01', title: 'Day 1' })!;
+    return { user, journey, entry };
+  }
+
+  it('JOURNEY-SVC-PHOTO-001: addPhoto puts the file in the gallery and links it to the entry', () => {
+    const { user, journey, entry } = ownedEntry();
+    const photo = svc.addPhoto(entry.id, user.id, 'journey/a.jpg', 'journey/a-thumb.jpg', 'Torii');
+    expect(photo).toBeTruthy();
+
+    const entries = svc.listEntries(journey.id, user.id)!;
+    expect(entries.find((e) => e.id === entry.id)!.photos).toHaveLength(1);
+  });
+
+  it('JOURNEY-SVC-PHOTO-002: addPhoto refuses an unknown entry and a non-editor', () => {
+    const { entry } = ownedEntry();
+    const { user: stranger } = createUser(testDb);
+    expect(svc.addPhoto(999999, 1, 'journey/a.jpg')).toBeNull();
+    expect(svc.addPhoto(entry.id, stranger.id, 'journey/a.jpg')).toBeNull();
+  });
+
+  it('JOURNEY-SVC-PHOTO-003: uploadGalleryPhotos appends in order and refuses a non-editor', () => {
+    const { user } = createUser(testDb);
+    const { user: stranger } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+
+    const first = svc.uploadGalleryPhotos(journey.id, user.id, [{ path: 'journey/1.jpg' }]);
+    const second = svc.uploadGalleryPhotos(journey.id, user.id, [
+      { path: 'journey/2.jpg', thumbnail: 'journey/2-t.jpg' },
+      { path: 'journey/3.mp4', mediaType: 'video', durationMs: 4200 },
+    ]);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(2);
+
+    const orders = testDb
+      .prepare('SELECT sort_order FROM journey_photos WHERE journey_id = ? ORDER BY sort_order')
+      .all(journey.id) as any[];
+    expect(orders.map((o) => o.sort_order)).toEqual([0, 1, 2]);
+
+    expect(svc.uploadGalleryPhotos(journey.id, stranger.id, [{ path: 'journey/x.jpg' }])).toEqual([]);
+  });
+
+  it('JOURNEY-SVC-PHOTO-004: linkPhotoToEntry attaches a gallery row, unlinkPhotoFromEntry detaches it', () => {
+    const { user, journey, entry } = ownedEntry();
+    const [gallery] = svc.uploadGalleryPhotos(journey.id, user.id, [{ path: 'journey/a.jpg' }]);
+
+    expect(svc.linkPhotoToEntry(entry.id, gallery.id, user.id)).toBeTruthy();
+    expect(svc.listEntries(journey.id, user.id)!.find((e) => e.id === entry.id)!.photos).toHaveLength(1);
+
+    expect(svc.unlinkPhotoFromEntry(entry.id, gallery.id, user.id)).toBe(true);
+    expect(svc.listEntries(journey.id, user.id)!.find((e) => e.id === entry.id)!.photos).toHaveLength(0);
+    // The gallery row survives the unlink — that is the whole point of the split.
+    expect(testDb.prepare('SELECT 1 FROM journey_photos WHERE id = ?').get(gallery.id)).toBeDefined();
+  });
+
+  it('JOURNEY-SVC-PHOTO-005: link/unlink refuse an unknown entry and a non-editor', () => {
+    const { user, journey, entry } = ownedEntry();
+    const { user: stranger } = createUser(testDb);
+    const [gallery] = svc.uploadGalleryPhotos(journey.id, user.id, [{ path: 'journey/a.jpg' }]);
+
+    expect(svc.linkPhotoToEntry(999999, gallery.id, user.id)).toBeNull();
+    expect(svc.linkPhotoToEntry(entry.id, gallery.id, stranger.id)).toBeNull();
+    expect(svc.unlinkPhotoFromEntry(999999, gallery.id, user.id)).toBe(false);
+    expect(svc.unlinkPhotoFromEntry(entry.id, gallery.id, stranger.id)).toBe(false);
+  });
+
+  it('JOURNEY-SVC-PHOTO-006: deleteGalleryPhoto removes the row and refuses an unknown id', () => {
+    const { user } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    const [gallery] = svc.uploadGalleryPhotos(journey.id, user.id, [{ path: 'journey/a.jpg' }]);
+
+    expect(svc.deleteGalleryPhoto(gallery.id, user.id)).toBeTruthy();
+    expect(testDb.prepare('SELECT 1 FROM journey_photos WHERE id = ?').get(gallery.id)).toBeUndefined();
+    expect(svc.deleteGalleryPhoto(999999, user.id)).toBeNull();
+  });
+
+  it('JOURNEY-SVC-PHOTO-007: deleteGalleryPhoto refuses a non-editor', () => {
+    const { user } = createUser(testDb);
+    const { user: stranger } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    const [gallery] = svc.uploadGalleryPhotos(journey.id, user.id, [{ path: 'journey/a.jpg' }]);
+    expect(svc.deleteGalleryPhoto(gallery.id, stranger.id)).toBeNull();
+  });
+});
+
+describe('per-user journey preferences', () => {
+  it('JOURNEY-SVC-PREF-001: hide_skeletons round-trips for the owner', () => {
+    const { user } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    expect(svc.updateJourneyPreferences(journey.id, user.id, { hide_skeletons: true })).toEqual({ hide_skeletons: true });
+    expect(svc.updateJourneyPreferences(journey.id, user.id, { hide_skeletons: false })).toEqual({ hide_skeletons: false });
+  });
+
+  it('JOURNEY-SVC-PREF-002: an empty patch is accepted and changes nothing', () => {
+    const { user } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    svc.updateJourneyPreferences(journey.id, user.id, { hide_skeletons: true });
+    expect(svc.updateJourneyPreferences(journey.id, user.id, {})).toEqual({ hide_skeletons: true });
+  });
+
+  it('JOURNEY-SVC-PREF-003: a stranger gets null, not a row', () => {
+    const { user } = createUser(testDb);
+    const { user: stranger } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    expect(svc.updateJourneyPreferences(journey.id, stranger.id, { hide_skeletons: true })).toBeNull();
+  });
+});
+
+describe('entry enrichment', () => {
+  it('JOURNEY-SVC-ENRICH-001: tags and pros_cons come back parsed, and source_trip_name is resolved', () => {
+    const { user } = createUser(testDb);
+    const { trip } = tripWithPlace(user.id);
+    testDb.prepare('UPDATE trips SET title = ? WHERE id = ?').run('Japan 2026', trip.id);
+    const journey = svc.createJourney(user.id, { title: 'J', trip_ids: [trip.id] });
+
+    const [skeleton] = skeletonsOf(journey.id);
+    testDb
+      .prepare('UPDATE journey_entries SET tags = ?, pros_cons = ? WHERE id = ?')
+      .run(JSON.stringify(['shrine']), JSON.stringify({ pros: ['quiet'], cons: [] }), skeleton.id);
+
+    const entry = svc.listEntries(journey.id, user.id)!.find((e) => e.id === skeleton.id)!;
+    expect(entry.tags).toEqual(['shrine']);
+    expect((entry as any).pros_cons).toEqual({ pros: ['quiet'], cons: [] });
+    expect((entry as any).source_trip_name).toBe('Japan 2026');
+  });
+
+  it('JOURNEY-SVC-ENRICH-002: an entry with no trip and no tags gets [] and null, not undefined', () => {
+    const { user } = createUser(testDb);
+    const journey = svc.createJourney(user.id, { title: 'J' });
+    const created = svc.createEntry(journey.id, user.id, { entry_date: '2026-05-01', title: 'Solo' })!;
+
+    const entry = svc.listEntries(journey.id, user.id)!.find((e) => e.id === created.id)!;
+    expect(entry.tags).toEqual([]);
+    expect((entry as any).pros_cons).toBeNull();
+    expect((entry as any).source_trip_name).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Unit tests for journeyShareService — JOURNEY-SHARE-001 through JOURNEY-SHARE-018.
+ * Unit tests for JourneyShareService — JOURNEY-SHARE-001 through JOURNEY-SHARE-018.
  * Uses a real in-memory SQLite DB so SQL logic is exercised faithfully.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
@@ -34,14 +34,15 @@ import { createTables } from '../../../src/db/schema';
 import { runMigrations } from '../../../src/db/migrations';
 import { resetTestDb } from '../../helpers/test-db';
 import { createUser, createJourney, createJourneyEntry } from '../../helpers/factories';
-import {
-  createOrUpdateJourneyShareLink,
-  getJourneyShareLink,
-  deleteJourneyShareLink,
-  validateShareTokenForPhoto,
-  validateShareTokenForAsset,
-  getPublicJourney,
-} from '../../../src/services/journeyShareService';
+import { DatabaseService } from '../../../src/nest/database/database.service';
+import { RealtimeService } from '../../../src/nest/realtime/realtime.service';
+import { TrekPhotosRepository } from '../../../src/nest/photos/trek-photos.repository';
+import { JourneyDomainService } from '../../../src/nest/journey/journey-domain.service';
+import { JourneyShareService } from '../../../src/nest/journey/journey-share.service';
+import { db as dbConn } from '../../../src/db/database';
+
+const dbs = new DatabaseService(dbConn);
+const svc = new JourneyShareService(dbs, new JourneyDomainService(dbs, new RealtimeService(), new TrekPhotosRepository(dbs)));
 
 beforeAll(() => {
   createTables(testDb);
@@ -100,7 +101,7 @@ describe('createOrUpdateJourneyShareLink', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const result = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const result = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
     expect(result.created).toBe(true);
     expect(result.token).toBeTruthy();
@@ -111,13 +112,13 @@ describe('createOrUpdateJourneyShareLink', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    createOrUpdateJourneyShareLink(journey.id, user.id, {
+    svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true,
       share_gallery: false,
       share_map: false,
     });
 
-    const link = getJourneyShareLink(journey.id);
+    const link = svc.getJourneyShareLink(journey.id);
     expect(link).not.toBeNull();
     expect(link!.share_timeline).toBe(true);
     expect(link!.share_gallery).toBe(false);
@@ -128,12 +129,12 @@ describe('createOrUpdateJourneyShareLink', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const first = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const first = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true,
       share_gallery: true,
       share_map: true,
     });
-    const second = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const second = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true,
       share_gallery: false,
       share_map: false,
@@ -142,7 +143,7 @@ describe('createOrUpdateJourneyShareLink', () => {
     expect(second.created).toBe(false);
     expect(second.token).toBe(first.token);
 
-    const link = getJourneyShareLink(journey.id);
+    const link = svc.getJourneyShareLink(journey.id);
     expect(link!.share_gallery).toBe(false);
     expect(link!.share_map).toBe(false);
   });
@@ -152,8 +153,8 @@ describe('createOrUpdateJourneyShareLink', () => {
     const j1 = createJourney(testDb, user.id);
     const j2 = createJourney(testDb, user.id);
 
-    const r1 = createOrUpdateJourneyShareLink(j1.id, user.id, {});
-    const r2 = createOrUpdateJourneyShareLink(j2.id, user.id, {});
+    const r1 = svc.createOrUpdateJourneyShareLink(j1.id, user.id, {});
+    const r2 = svc.createOrUpdateJourneyShareLink(j2.id, user.id, {});
 
     expect(r1.token).not.toBe(r2.token);
   });
@@ -164,7 +165,7 @@ describe('getJourneyShareLink', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    const result = getJourneyShareLink(journey.id);
+    const result = svc.getJourneyShareLink(journey.id);
 
     expect(result).toBeNull();
   });
@@ -172,13 +173,13 @@ describe('getJourneyShareLink', () => {
   it('JOURNEY-SHARE-006: returns share link info when it exists', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
-    createOrUpdateJourneyShareLink(journey.id, user.id, {
+    svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true,
       share_gallery: false,
       share_map: true,
     });
 
-    const result = getJourneyShareLink(journey.id);
+    const result = svc.getJourneyShareLink(journey.id);
 
     expect(result).not.toBeNull();
     expect(result!.token).toBeTruthy();
@@ -193,19 +194,19 @@ describe('deleteJourneyShareLink', () => {
   it('JOURNEY-SHARE-007: owner can remove an existing share link', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
-    createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const ok = deleteJourneyShareLink(journey.id, user.id);
+    const ok = svc.deleteJourneyShareLink(journey.id, user.id);
 
     expect(ok).toBe(true);
-    expect(getJourneyShareLink(journey.id)).toBeNull();
+    expect(svc.getJourneyShareLink(journey.id)).toBeNull();
   });
 
   it('JOURNEY-SHARE-008: does not throw when deleting non-existent link', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
 
-    expect(() => deleteJourneyShareLink(journey.id, user.id)).not.toThrow();
+    expect(() => svc.deleteJourneyShareLink(journey.id, user.id)).not.toThrow();
   });
 });
 
@@ -215,9 +216,9 @@ describe('validateShareTokenForPhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id);
     const photoId = insertJourneyPhoto(entry.id, { ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = validateShareTokenForPhoto(token, photoId);
+    const result = svc.validateShareTokenForPhoto(token, photoId);
 
     expect(result).not.toBeNull();
     expect(result!.journeyId).toBe(journey.id);
@@ -225,7 +226,7 @@ describe('validateShareTokenForPhoto', () => {
   });
 
   it('JOURNEY-SHARE-010: returns null for invalid token', () => {
-    const result = validateShareTokenForPhoto('nonexistent-token', 1);
+    const result = svc.validateShareTokenForPhoto('nonexistent-token', 1);
     expect(result).toBeNull();
   });
 
@@ -235,9 +236,9 @@ describe('validateShareTokenForPhoto', () => {
     const journey2 = createJourney(testDb, user.id);
     const entry2 = createJourneyEntry(testDb, journey2.id, user.id);
     const photoId = insertJourneyPhoto(entry2.id);
-    const { token } = createOrUpdateJourneyShareLink(journey1.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey1.id, user.id, {});
 
-    const result = validateShareTokenForPhoto(token, photoId);
+    const result = svc.validateShareTokenForPhoto(token, photoId);
 
     expect(result).toBeNull();
   });
@@ -247,9 +248,9 @@ describe('validateShareTokenForPhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id);
     const photoId = insertJourneyPhoto(entry.id, { ownerId: undefined });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = validateShareTokenForPhoto(token, photoId);
+    const result = svc.validateShareTokenForPhoto(token, photoId);
 
     expect(result).not.toBeNull();
     expect(result!.ownerId).toBe(user.id);
@@ -261,9 +262,9 @@ describe('validateShareTokenForPhoto', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id);
     const photoId = insertJourneyPhoto(entry.id, { ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, { share_timeline: true, share_gallery: false, share_map: true });
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, { share_timeline: true, share_gallery: false, share_map: true });
 
-    expect(validateShareTokenForPhoto(token, photoId)).toBeNull();
+    expect(svc.validateShareTokenForPhoto(token, photoId)).toBeNull();
   });
 
   it('JOURNEY-SHARE-016: resolves correctly when trek_photos.id differs from journey_photos.id (Immich bulk-sync scenario)', () => {
@@ -281,10 +282,10 @@ describe('validateShareTokenForPhoto', () => {
 
     // This trek_photos row gets a high id (e.g. 6) while journey_photos id will be 1
     const trekPhotoId = insertJourneyPhoto(entry.id, { assetId: 'journey-asset-xyz', ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
     // photoId = trek_photos.id (6), not journey_photos.id (1)
-    const result = validateShareTokenForPhoto(token, trekPhotoId);
+    const result = svc.validateShareTokenForPhoto(token, trekPhotoId);
 
     expect(result).not.toBeNull();
     expect(result!.ownerId).toBe(user.id);
@@ -298,16 +299,16 @@ describe('validateShareTokenForAsset', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id);
     insertJourneyPhoto(entry.id, { assetId: 'immich-asset-123', ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = validateShareTokenForAsset(token, 'immich-asset-123');
+    const result = svc.validateShareTokenForAsset(token, 'immich-asset-123');
 
     expect(result).not.toBeNull();
     expect(result!.ownerId).toBe(user.id);
   });
 
   it('JOURNEY-SHARE-014: returns null for invalid token', () => {
-    const result = validateShareTokenForAsset('bad-token', 'some-asset');
+    const result = svc.validateShareTokenForAsset('bad-token', 'some-asset');
     expect(result).toBeNull();
   });
 
@@ -317,20 +318,20 @@ describe('validateShareTokenForAsset', () => {
     const journey = createJourney(testDb, user.id);
     const entry = createJourneyEntry(testDb, journey.id, user.id);
     insertJourneyPhoto(entry.id, { assetId: 'immich-asset-999', ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, { share_timeline: true, share_gallery: false, share_map: true });
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, { share_timeline: true, share_gallery: false, share_map: true });
 
-    expect(validateShareTokenForAsset(token, 'immich-asset-999')).toBeNull();
+    expect(svc.validateShareTokenForAsset(token, 'immich-asset-999')).toBeNull();
   });
 
   it('JOURNEY-SHARE-015: denies (returns null) when the asset is not part of the shared journey', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id);
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
     // A valid share token must NOT resolve arbitrary asset IDs to the owner —
     // otherwise it could proxy any asset out of the owner's Immich/Synology
     // library (IDOR). Only assets actually in the journey may resolve.
-    const result = validateShareTokenForAsset(token, 'nonexistent-asset');
+    const result = svc.validateShareTokenForAsset(token, 'nonexistent-asset');
 
     expect(result).toBeNull();
   });
@@ -338,7 +339,7 @@ describe('validateShareTokenForAsset', () => {
 
 describe('getPublicJourney', () => {
   it('JOURNEY-SHARE-016: returns null for invalid token', () => {
-    const result = getPublicJourney('invalid-token');
+    const result = svc.getPublicJourney('invalid-token');
     expect(result).toBeNull();
   });
 
@@ -361,13 +362,13 @@ describe('getPublicJourney', () => {
       location_name: 'Kyoto',
     });
     insertJourneyPhoto(entry1.id);
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true,
       share_gallery: true,
       share_map: false,
     });
 
-    const result = getPublicJourney(token);
+    const result = svc.getPublicJourney(token);
 
     expect(result).not.toBeNull();
     expect(result!.journey.title).toBe('Japan 2026');
@@ -394,9 +395,9 @@ describe('getPublicJourney', () => {
       title: 'Skeleton Entry',
       entry_date: '2026-01-11',
     });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = getPublicJourney(token);
+    const result = svc.getPublicJourney(token);
 
     expect(result).not.toBeNull();
     expect(result!.entries).toHaveLength(1);
@@ -415,9 +416,9 @@ describe('getPublicJourney', () => {
       .run(JSON.stringify(['food', 'culture']), entry.id);
     insertJourneyPhoto(entry.id, { filePath: '/photos/a.jpg' });
     insertJourneyPhoto(entry.id, { filePath: '/photos/b.jpg' });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = getPublicJourney(token);
+    const result = svc.getPublicJourney(token);
 
     expect(result).not.toBeNull();
     const enriched = result!.entries[0];
@@ -428,9 +429,9 @@ describe('getPublicJourney', () => {
   it('JOURNEY-SHARE-020: returns empty entries array for journey with no entries', () => {
     const { user } = createUser(testDb);
     const journey = createJourney(testDb, user.id, { title: 'Empty Journey' });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {});
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {});
 
-    const result = getPublicJourney(token);
+    const result = svc.getPublicJourney(token);
 
     expect(result).not.toBeNull();
     expect(result!.entries).toEqual([]);
@@ -447,11 +448,11 @@ describe('getPublicJourney', () => {
     });
     testDb.prepare('UPDATE journey_entries SET location_lat = ?, location_lng = ? WHERE id = ?').run(48.8566, 2.3522, entry.id);
     insertJourneyPhoto(entry.id);
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: false, share_gallery: false, share_map: false,
     });
 
-    const result = getPublicJourney(token)!;
+    const result = svc.getPublicJourney(token)!;
     expect(result.entries).toEqual([]); // no timeline / story / GPS leaked
     expect(result.gallery).toEqual([]); // no gallery leaked
     expect(result.stats.entries).toBe(1); // counts stay accurate
@@ -464,11 +465,11 @@ describe('getPublicJourney', () => {
       type: 'entry', title: 'Day 1', story: 'notes', entry_date: '2026-05-01', location_name: 'Paris',
     });
     testDb.prepare('UPDATE journey_entries SET location_lat = ?, location_lng = ? WHERE id = ?').run(48.8566, 2.3522, entry.id);
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true, share_gallery: true, share_map: false,
     });
 
-    const result = getPublicJourney(token)!;
+    const result = svc.getPublicJourney(token)!;
     expect(result.entries).toHaveLength(1);
     const e = result.entries[0] as Record<string, unknown>;
     expect(e.story).toBe('notes'); // narrative present
@@ -483,11 +484,11 @@ describe('getPublicJourney', () => {
       type: 'entry', title: 'Day 1', story: 'private notes', entry_date: '2026-05-01', location_name: 'Paris',
     });
     testDb.prepare('UPDATE journey_entries SET location_lat = ?, location_lng = ? WHERE id = ?').run(48.8566, 2.3522, entry.id);
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: false, share_gallery: false, share_map: true,
     });
 
-    const result = getPublicJourney(token)!;
+    const result = svc.getPublicJourney(token)!;
     expect(result.entries).toHaveLength(1);
     const e = result.entries[0] as Record<string, unknown>;
     expect(e.location_lat).toBe(48.8566); // coords for the map
@@ -501,11 +502,11 @@ describe('getPublicJourney', () => {
       type: 'entry', title: 'Day 1', story: 'notes', entry_date: '2026-05-01',
     });
     insertJourneyPhoto(entry.id, { ownerId: user.id });
-    const { token } = createOrUpdateJourneyShareLink(journey.id, user.id, {
+    const { token } = svc.createOrUpdateJourneyShareLink(journey.id, user.id, {
       share_timeline: true, share_gallery: false, share_map: true,
     });
 
-    const result = getPublicJourney(token)!;
+    const result = svc.getPublicJourney(token)!;
     expect(result.gallery).toEqual([]); // gallery array withheld
     expect(result.entries).toHaveLength(1);
     expect((result.entries[0] as Record<string, unknown>).photos).toEqual([]); // inline photos withheld too

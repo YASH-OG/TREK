@@ -1,4 +1,6 @@
 import { db } from '../../db/database';
+import { JourneyDomainService } from '../journey/journey-domain.service';
+import { TrekPhotosRepository } from '../photos/trek-photos.repository';
 import { DatabaseService } from '../database/database.service';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PermissionsService } from '../permissions/permissions.service';
@@ -39,6 +41,7 @@ const dbs = () => new DatabaseService(db);
 // One instance, not one per consumer: the in-flight dedup only works if the
 // stampede guard is shared (see PlacePhotoCacheService).
 const photoCache = new PlacePhotoCacheService(dbs(), new RuntimeEnvService());
+const journeyDomain = new JourneyDomainService(dbs(), new RealtimeService(), new TrekPhotosRepository(dbs()));
 const budget = new BudgetService(dbs(), new PermissionsService(dbs()), new ExchangeRatesService(), new RealtimeService());
 const trips = new TripsService(
   dbs(),
@@ -52,7 +55,7 @@ const trips = new TripsService(
   new CollabService(dbs(), new PermissionsService(dbs()), new RealtimeService()),
   new VacayService(dbs(), new RealtimeService()),
   new RealtimeService(),
-  new PlacesService(dbs(), new PermissionsService(dbs()), new RealtimeService(), new MapsService(dbs(), photoCache), new QueryHelpersService(dbs()), new UnsplashService(dbs(), new RuntimeEnvService()), photoCache),
+  new PlacesService(dbs(), new PermissionsService(dbs()), new RealtimeService(), new MapsService(dbs(), photoCache), new QueryHelpersService(dbs()), new UnsplashService(dbs(), new RuntimeEnvService()), photoCache, journeyDomain),
   new UnsplashService(dbs(), new RuntimeEnvService()),
   new UserCleanupService(dbs()),
 );

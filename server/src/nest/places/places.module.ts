@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { JourneyDomainModule } from '../journey/journey-domain.module';
 import { PlacesController } from './places.controller';
 import { PlacesService } from './places.service';
 import { PlacesMcp } from './places.mcp';
@@ -19,7 +20,7 @@ import { AuthModule } from '../auth/auth.module';
  * is no places.bridge.ts: nothing outside the container consumes this domain.
  */
 @Module({
-  imports: [PermissionsModule, QueryHelpersModule, MapsModule, AuthModule, AppConfigModule, UnsplashModule, PlacePhotosModule],
+  imports: [PermissionsModule, QueryHelpersModule, MapsModule, AuthModule, AppConfigModule, UnsplashModule, PlacePhotosModule, JourneyDomainModule],
   controllers: [PlacesController],
   providers: [PlacesService, PlacesMcp],
   exports: [PlacesService],

@@ -19,7 +19,7 @@ import { PlacesService, type PlaceCreateInput, type PlaceUpdateInput } from '../
 import { AddonsService } from '../../addons/addons.service';
 import { isDemoEmail } from '../../common/demo';
 import { ADDON_IDS } from '../../../addons';
-import { listJourneys, listEntries as listJournalEntriesSvc, createEntry as createJournalEntrySvc, updateEntry as updateJournalEntrySvc, deleteEntry as deleteJournalEntrySvc, createJourney as createJourneySvc, deleteJourney as deleteJourneySvc, onPlaceCreated, onPlaceUpdated, onPlaceDeleted } from '../../../services/journeyService';
+import { JourneyDomainService } from '../../journey/journey-domain.service';
 import { AtlasService } from '../../atlas/atlas.service';
 import { CollectionsService } from '../../collections/collections.service';
 import { BudgetService } from '../../budget/budget.service';
@@ -166,6 +166,7 @@ export class PluginHostDepsFactory {
     private readonly atlas: AtlasService,
     private readonly notifications: NotificationsService,
     private readonly membership: TripMembershipService,
+    private readonly journey: JourneyDomainService,
   ) {}
 
   /**
@@ -482,14 +483,14 @@ export class PluginHostDepsFactory {
       createPlace: (tripId, input) => {
         const place = this.places.create(String(tripId), input as unknown as PlaceCreateInput);
         this.realtime.broadcast(tripId, 'place:created', { place });
-        mirrorJourneys(() => onPlaceCreated(Number(tripId), place.id));
+        mirrorJourneys(() => this.journey.onPlaceCreated(Number(tripId), place.id));
         return place;
       },
       updatePlace: (tripId, placeId, input) => {
         const place = this.places.update(String(tripId), String(placeId), input as PlaceUpdateInput);
         if (place === null) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
         this.realtime.broadcast(tripId, 'place:updated', { place });
-        mirrorJourneys(() => onPlaceUpdated(Number(placeId)));
+        mirrorJourneys(() => this.journey.onPlaceUpdated(Number(placeId)));
         return place;
       },
       deletePlace: (tripId, placeId) => {
@@ -500,7 +501,7 @@ export class PluginHostDepsFactory {
         // Ahead of the DELETE, like the REST route and the MCP tool: journey_entries
         // .source_place_id is ON DELETE SET NULL, so afterwards the hook finds nothing
         // left to detach and the entries linger as orphans.
-        mirrorJourneys(() => onPlaceDeleted(Number(placeId)));
+        mirrorJourneys(() => this.journey.onPlaceDeleted(Number(placeId)));
         const deleted = this.places.remove(String(tripId), String(placeId));
         if (!deleted) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
         this.realtime.broadcast(tripId, 'place:deleted', { placeId });
@@ -652,12 +653,12 @@ export class PluginHostDepsFactory {
       // --- User-scoped addon reads (the acting user's own data across all trips). Each
       // reuses the same service the addon's REST/MCP path uses; the addon-enabled gate
       // mirrors the app (a disabled addon has nothing to read). ---
-      listJournalsForUser: (userId) => { requireAddon(ADDON_IDS.JOURNEY, 'journey'); return listJourneys(userId); },
+      listJournalsForUser: (userId) => { requireAddon(ADDON_IDS.JOURNEY, 'journey'); return this.journey.listJourneys(userId); },
       journalEntriesForUser: (userId, journeyId) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
         // listEntries self-gates via canAccessJourney(journeyId, userId) → null if the
         // user can't see it (owner/contributor only).
-        const entries = listJournalEntriesSvc(journeyId, userId);
+        const entries = this.journey.listEntries(journeyId, userId);
         if (entries === null) throw new ForbiddenResource(`no access to journey ${journeyId}`);
         return entries;
       },
@@ -717,30 +718,30 @@ export class PluginHostDepsFactory {
       // --- Journal write: journeyService.canEdit self-gates each call (owner/contributor). ---
       createJournalEntry: (userId, journeyId, input) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        const entry = createJournalEntrySvc(journeyId, userId, input as never);
+        const entry = this.journey.createEntry(journeyId, userId, input as never);
         if (!entry) throw new ForbiddenResource(`no editable journey ${journeyId} for this user`);
         return entry;
       },
       updateJournalEntry: (userId, entryId, input) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        const entry = updateJournalEntrySvc(entryId, userId, input as never);
+        const entry = this.journey.updateEntry(entryId, userId, input as never);
         if (!entry) throw new ForbiddenResource(`no editable journal entry ${entryId} for this user`);
         return entry;
       },
       deleteJournalEntry: (userId, entryId) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        if (!deleteJournalEntrySvc(entryId, userId)) throw new ForbiddenResource(`no editable journal entry ${entryId} for this user`);
+        if (!this.journey.deleteEntry(entryId, userId)) throw new ForbiddenResource(`no editable journal entry ${entryId} for this user`);
         return { deleted: true };
       },
       createJournal: (userId, input) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
         const title = typeof (input as { title?: unknown }).title === 'string' ? String((input as { title: string }).title).trim() : '';
         if (!title) throw new BadParams('journal title is required');
-        return createJourneySvc(userId, { title, subtitle: (input as { subtitle?: string }).subtitle, trip_ids: (input as { trip_ids?: number[] }).trip_ids });
+        return this.journey.createJourney(userId, { title, subtitle: (input as { subtitle?: string }).subtitle, trip_ids: (input as { trip_ids?: number[] }).trip_ids });
       },
       deleteJournal: (userId, journeyId) => {
         requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        if (!deleteJourneySvc(journeyId, userId)) throw new ForbiddenResource(`no deletable journal ${journeyId} for this user`);
+        if (!this.journey.deleteJourney(journeyId, userId)) throw new ForbiddenResource(`no deletable journal ${journeyId} for this user`);
         return { deleted: true };
       },
       // Day notes are core (no addon) and trip-scoped; membership is enforced by the host.

@@ -1,7 +1,7 @@
 import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { DatabaseService } from '../database/database.service';
-import { canAccessJourney } from '../../services/journeyService';
+import { JourneyDomainService } from '../journey/journey-domain.service';
 import { AddonsService } from '../addons/addons.service';
 import { ADDON_IDS } from '../../addons';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -70,6 +70,7 @@ export class JournalEntryRowsController {
     private readonly runtime: PluginRuntimeService,
     private readonly dbs: DatabaseService,
     private readonly addons: AddonsService,
+    private readonly journey: JourneyDomainService,
   ) {}
 
   @Get(':entryId')
@@ -84,7 +85,7 @@ export class JournalEntryRowsController {
 
     // The entry's journey must be one the caller can access — same gate as a read.
     const row = this.dbs.connection.prepare('SELECT journey_id FROM journey_entries WHERE id = ?').get(entryId) as { journey_id: number } | undefined;
-    if (!row || !canAccessJourney(row.journey_id, userId)) return { providers: [] };
+    if (!row || !this.journey.canAccessJourney(row.journey_id, userId)) return { providers: [] };
 
     const ids = this.runtime.providersOf('journalEntryProvider');
     const results = await Promise.all(

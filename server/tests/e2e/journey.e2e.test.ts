@@ -47,10 +47,10 @@ vi.mock('../../src/nest/memories/photo-resolver.service', async (importOriginal)
 const { jsvc } = vi.hoisted(() => ({
   jsvc: { listJourneys: vi.fn(), createJourney: vi.fn(), getJourneyFull: vi.fn() },
 }));
-vi.mock('../../src/services/journeyService', () => jsvc);
+import { JourneyDomainService } from '../../src/nest/journey/journey-domain.service';
 
 const { sharesvc } = vi.hoisted(() => ({ sharesvc: { getPublicJourney: vi.fn() } }));
-vi.mock('../../src/services/journeyShareService', () => sharesvc);
+import { JourneyShareService } from '../../src/nest/journey/journey-share.service';
 
 import { JourneyModule } from '../../src/nest/journey/journey.module';
 import { AddonsService } from '../../src/nest/addons/addons.service';
@@ -62,6 +62,10 @@ describe('Journey e2e (real auth guard + temp SQLite)', () => {
 
   async function build() {
     const moduleRef = await Test.createTestingModule({ imports: [DatabaseModule, JourneyModule] })
+      .overrideProvider(JourneyDomainService)
+      .useValue(jsvc)
+      .overrideProvider(JourneyShareService)
+      .useValue(sharesvc)
       .overrideProvider(AddonsService)
       .useValue({ isAddonEnabled })
       .compile();

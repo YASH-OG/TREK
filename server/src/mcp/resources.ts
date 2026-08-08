@@ -1,7 +1,7 @@
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp';
 import { isAddonEnabled } from '../nest/addons/addons.bridge';
 import { ADDON_IDS } from '../addons';
-import { canAccessJourney, getJourneyFull, listEntries, listJourneys } from '../services/journeyService';
+import { canAccessJourney, getJourneyFull, listEntries, listJourneys } from '../nest/journey/journey.bridge';
 import { canRead } from './scopes';
 
 function parseId(value: string | string[]): number | null {

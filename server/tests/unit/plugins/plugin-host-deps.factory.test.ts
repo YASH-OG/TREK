@@ -243,14 +243,14 @@ const reservationsStub = {
   syncBudgetOnUpdate() {},
   notifyBookingChange() {},
 } as unknown as ReservationsService;
-vi.mock('../../../src/services/journeyService', () => ({
-  // Consumed by the real assignments.service.ts module (loaded un-mocked as a
-  // factory constructor dep); the instance is stubbed, so this is never called.
-  reconcileTripSkeletons: vi.fn(),
+// Journey is a constructor-injected stub since the journey fold (same behaviors
+// as the old services/journeyService path mock, keyed by the service methods).
+const { onPlaceCreated, onPlaceUpdated, onPlaceDeleted } = vi.hoisted(() => ({
+  onPlaceCreated: vi.fn(), onPlaceUpdated: vi.fn(), onPlaceDeleted: vi.fn(),
+}));
+const journeyStub = {
   // The skeleton hooks the place writes fire (#1705).
-  onPlaceCreated: vi.fn(),
-  onPlaceUpdated: vi.fn(),
-  onPlaceDeleted: vi.fn(),
+  onPlaceCreated, onPlaceUpdated, onPlaceDeleted,
   listJourneys: vi.fn((uid: number) => [{ id: 1, owner: uid }]),
   // journeyId 88 = no access (listEntries self-gates to null); else returns entries
   listEntries: vi.fn((journeyId: number, uid: number) => (journeyId === 88 ? null : [{ id: 10, journey_id: journeyId, author_id: uid }])),
@@ -258,7 +258,9 @@ vi.mock('../../../src/services/journeyService', () => ({
   createEntry: vi.fn((journeyId: number, uid: number, data: unknown) => (journeyId === 99 ? null : { id: 120, journey_id: journeyId, created_by: uid, ...(data as object) })),
   updateEntry: vi.fn((entryId: number, _uid: number, data: unknown) => (entryId === 99 ? null : { id: entryId, ...(data as object) })),
   deleteEntry: vi.fn((entryId: number) => entryId !== 99),
-}));
+  createJourney: vi.fn((uid: number, data: unknown) => ({ id: 130, owner: uid, ...(data as object) })),
+  deleteJourney: vi.fn((journeyId: number) => journeyId !== 99),
+} as unknown as JourneyDomainService;
 // Atlas is a constructor-injected stub since the atlas fold (same behaviors as
 // the old services/atlasService path mock, keyed by the service method names).
 const atlasStub = {
@@ -307,7 +309,6 @@ const vacayStub = {
 import { PluginHostDepsFactory, type PluginCallRouter } from '../../../src/nest/plugins/host/plugin-host-deps.factory';
 import { getPluginDataDb, closePluginDataDb } from '../../../src/nest/plugins/host/plugin-host-state';
 import { db as mockDb } from '../../../src/db/database';
-import { onPlaceCreated, onPlaceUpdated, onPlaceDeleted } from '../../../src/services/journeyService';
 import type { BudgetService } from '../../../src/nest/budget/budget.service';
 import type { ExchangeRatesService } from '../../../src/nest/budget/exchange-rates.service';
 import type { ReservationsService } from '../../../src/nest/reservations/reservations.service';
@@ -318,6 +319,7 @@ import type { PackingService } from '../../../src/nest/packing/packing.service';
 import type { DayNotesService } from '../../../src/nest/days/day-notes.service';
 import type { DaysService } from '../../../src/nest/days/days.service';
 import type { AssignmentsService } from '../../../src/nest/assignments/assignments.service';
+import type { JourneyDomainService } from '../../../src/nest/journey/journey-domain.service';
 import type { PluginOAuthService } from '../../../src/nest/plugins/plugin-oauth.service';
 import type { LlmConfigResolver } from '../../../src/nest/llm-parse/llm-config.resolver';
 import type { FilesService } from '../../../src/nest/files/files.service';
@@ -351,7 +353,7 @@ const tripsStub = {
   list: () => [{ id: 1 }],
   removeMember: vi.fn(),
 } as unknown as import('../../../src/nest/trips/trips.service').TripsService;
-const factory = new PluginHostDepsFactory(budgetStub, reservationsStub, tagsStub, categoriesStub, todoStub, packingStub, oauthStub, dayNotesStub, assignmentsStub, llmConfigStub, new DatabaseService(mockDb), filesStub, collabStub, vacayStub, daysStub, permissionsStub, exchangeRatesStub, addonsStub, new RealtimeService(), tripsStub, placesStub, collectionsStub, atlasStub, notificationsStub, membershipStub);
+const factory = new PluginHostDepsFactory(budgetStub, reservationsStub, tagsStub, categoriesStub, todoStub, packingStub, oauthStub, dayNotesStub, assignmentsStub, llmConfigStub, new DatabaseService(mockDb), filesStub, collabStub, vacayStub, daysStub, permissionsStub, exchangeRatesStub, addonsStub, new RealtimeService(), tripsStub, placesStub, collectionsStub, atlasStub, notificationsStub, membershipStub, journeyStub);
 const stubRouter: PluginCallRouter = { callPlugin: async () => undefined, emitPluginEvent: () => {} };
 const createRealRpcHost = (id: string, granted: ReadonlySet<string>, router: PluginCallRouter = stubRouter) => factory.create(id, granted, router);
 

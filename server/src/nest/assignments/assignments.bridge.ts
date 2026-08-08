@@ -4,6 +4,8 @@ import { RealtimeService } from '../realtime/realtime.service';
 import { AssignmentsService } from './assignments.service';
 import { PermissionsService } from '../permissions/permissions.service';
 import { QueryHelpersService } from '../query-helpers/query-helpers.service';
+import { JourneyDomainService } from '../journey/journey-domain.service';
+import { TrekPhotosRepository } from '../photos/trek-photos.repository';
 
 /**
  * Non-Nest entry point for the assignments domain — for code running OUTSIDE
@@ -26,9 +28,14 @@ import { QueryHelpersService } from '../query-helpers/query-helpers.service';
  * have finished evaluating. (`db` is the reinitialize-proof Proxy onto the
  * shared better-sqlite3 singleton.)
  */
+function journeyDomain(): JourneyDomainService {
+  const dbs = new DatabaseService(db);
+  return new JourneyDomainService(dbs, new RealtimeService(), new TrekPhotosRepository(dbs));
+}
+
 let instance: AssignmentsService | undefined;
 function assignments(): AssignmentsService {
-  return (instance ??= new AssignmentsService(new DatabaseService(db), new PermissionsService(new DatabaseService(db)), new RealtimeService(), new QueryHelpersService(new DatabaseService(db))));
+  return (instance ??= new AssignmentsService(new DatabaseService(db), new PermissionsService(new DatabaseService(db)), new RealtimeService(), new QueryHelpersService(new DatabaseService(db)), journeyDomain()));
 }
 
 export function createAssignment(dayId: string | number, placeId: string | number, notes: string | null) {

@@ -51,6 +51,13 @@ import { VacayMcp } from '../../src/nest/vacay/vacay.mcp';
 import { VacayService } from '../../src/nest/vacay/vacay.service';
 import { RealtimeService } from '../../src/nest/realtime/realtime.service';
 import { QueryHelpersService } from '../../src/nest/query-helpers/query-helpers.service';
+import { JourneyMcp } from '../../src/nest/journey/journey.mcp';
+import { JourneyDomainService } from '../../src/nest/journey/journey-domain.service';
+import { JourneyShareService } from '../../src/nest/journey/journey-share.service';
+import { TrekPhotosRepository } from '../../src/nest/photos/trek-photos.repository';
+import { UnsplashService } from '../../src/nest/unsplash/unsplash.service';
+import { PlacePhotoCacheService } from '../../src/nest/place-photos/place-photo-cache.service';
+import { RuntimeEnvService } from '../../src/nest/app-config/runtime-env.service';
 import { makeNotificationsService, makeNotificationPreferencesService } from './notifications';
 
 /**
@@ -73,7 +80,17 @@ export function createMcpTestRegistry(): McpRegistry {
   const packingService = new PackingService(dbService, permissionsService, realtimeService);
   const collabService = new CollabService(dbService, permissionsService, realtimeService);
   const mapsService = new MapsService(dbService);
-  const placesService = new PlacesService(dbService, permissionsService, realtimeService, mapsService, queryHelpersService);
+  const journeyDomain = new JourneyDomainService(dbService, realtimeService, new TrekPhotosRepository(dbService));
+  // The last three were previously omitted, which left them `undefined` at
+  // runtime — silently fine while nothing called them, a TypeError the moment
+  // the journey skeleton hooks landed on the place write paths. tsconfig only
+  // includes `src`, so nothing here is typechecked; pass them for real.
+  const placesService = new PlacesService(
+    dbService, permissionsService, realtimeService, mapsService, queryHelpersService,
+    new UnsplashService(dbService, new RuntimeEnvService()),
+    new PlacePhotoCacheService(dbService, new RuntimeEnvService()),
+    journeyDomain,
+  );
   const reservationsService = new ReservationsService(dbService, permissionsService, budgetService, realtimeService);
   const tripsService = new TripsService(
     dbService,
@@ -103,16 +120,17 @@ export function createMcpTestRegistry(): McpRegistry {
       new ReservationsMcp(reservationsService, daysService, budgetService, authService),
       new DayNotesMcp(new DayNotesService(dbService, permissionsService, realtimeService), authService),
       new DaysMcp(daysService, dbService, placesService, authService),
-      new AssignmentsMcp(new AssignmentsService(dbService, permissionsService, realtimeService, queryHelpersService), daysService, authService),
+      new AssignmentsMcp(new AssignmentsService(dbService, permissionsService, realtimeService, queryHelpersService, journeyDomain), daysService, authService),
       new CollabMcp(collabService, authService),
       new VacayMcp(new VacayService(dbService, realtimeService), authService),
       new TripsMcp(tripsService, todoService, collabService, authService),
       new ShareMcp(new ShareService(dbService, new SettingsService(dbService), permissionsService, queryHelpersService), authService),
       new MapsMcp(mapsService),
-      new PlacesMcp(placesService, mapsService, dbService, authService),
+      new PlacesMcp(placesService, mapsService, dbService, authService, journeyDomain),
       new CollectionsMcp(new CollectionsService(dbService, permissionsService, realtimeService), dbService, authService),
       new TransitMcp(new TransitService(), daysService, reservationsService, dbService, authService),
       new AtlasMcp(new AtlasService(dbService)),
+      new JourneyMcp(journeyDomain, new JourneyShareService(dbService, journeyDomain)),
       new NotificationsMcp(makeNotificationsService(dbService, realtimeService), authService),
     ],
     { accessPolicy: trekMcpAccessPolicy, validateAccess: trekMcpValidateAccess },
