@@ -441,93 +441,16 @@ describe('host-deps factory — planner write + metadata deps', () => {
   beforeEach(() => { checkPermission.mockReset(); checkPermission.mockReturnValue(true); });
   afterAll(() => closePluginDataDb('writer'));
 
-  it('places.create/update/delete delegate + broadcast; a missing place is RESOURCE_FORBIDDEN', async () => {
-    const h = host('db:write:places');
-    expect((await call(h, 'places.create', { tripId: 1, input: { name: 'P' } })).ok).toBe(true);
-    // Write deps re-emit the SAME core event the controllers do (not the plugin: namespace).
-    expect(broadcast).toHaveBeenCalledWith(1, 'place:created', expect.anything());
-    expect((await call(h, 'places.update', { tripId: 1, placeId: 5, input: { name: 'Q' } })).ok).toBe(true);
-    expect((await call(h, 'places.update', { tripId: 1, placeId: 99, input: {} })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'places.delete', { tripId: 1, placeId: 5 })).ok).toBe(true);
-    expect((await call(h, 'places.delete', { tripId: 1, placeId: 99 })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
+  // places, days and itinerary left this factory with the decorator migration; the
+  // cases now run in tests/unit/places/ and tests/unit/days/.
   // #1705: a place write from a plugin has to update a linked journey the same way
   // the REST route does, otherwise the journey shows the old title (or an entry for
   // a place that no longer exists) until it is reloaded.
-  it('places writes fire the journey hooks, delete ahead of the row, and skip a foreign id', async () => {
-    const h = host('db:write:places');
-    const created = vi.mocked(onPlaceCreated);
-    const updated = vi.mocked(onPlaceUpdated);
-    const deleted = vi.mocked(onPlaceDeleted);
-    const removePlace = removePlaceStub;
-    [created, updated, deleted, removePlace].forEach((m) => m.mockClear());
-
-    expect((await call(h, 'places.create', { tripId: 1, input: { name: 'P' } })).ok).toBe(true);
-    expect(created).toHaveBeenCalledWith(1, 10);
-
-    expect((await call(h, 'places.update', { tripId: 1, placeId: 5, input: { name: 'Q' } })).ok).toBe(true);
-    expect(updated).toHaveBeenCalledWith(5);
-
-    expect((await call(h, 'places.delete', { tripId: 1, placeId: 5 })).ok).toBe(true);
-    expect(deleted).toHaveBeenCalledWith(5);
-    // source_place_id is ON DELETE SET NULL — after the row is gone the hook has
-    // nothing left to detach, so the order is part of the fix.
-    expect(deleted.mock.invocationCallOrder[0]).toBeLessThan(removePlace.mock.invocationCallOrder[0]);
-
-    // A place on another trip: refused before the hook can touch that trip's journeys.
-    deleted.mockClear();
-    updated.mockClear();
-    expect((await call(h, 'places.delete', { tripId: 1, placeId: 99 })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'places.update', { tripId: 1, placeId: 99, input: {} })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect(deleted).not.toHaveBeenCalled();
-    expect(updated).not.toHaveBeenCalled();
-  });
-
   // A journey link that blows up must not turn a successful place write into an
   // RPC error — every other caller of these hooks swallows them too.
-  it('places writes survive a throwing journey hook', async () => {
-    const h = host('db:write:places');
-    const updated = vi.mocked(onPlaceUpdated);
-    updated.mockImplementationOnce(() => { throw new Error('journey db locked'); });
-    expect((await call(h, 'places.update', { tripId: 1, placeId: 5, input: { name: 'Q' } })).ok).toBe(true);
-  });
-
-  it('days + itinerary delegate; a day/place/assignment outside the trip is refused', async () => {
-    const h = host('db:write:days', 'db:write:itinerary');
-    expect((await call(h, 'days.create', { tripId: 1, input: { notes: 'n' } })).ok).toBe(true);
-    expect((await call(h, 'days.update', { tripId: 1, dayId: 3, input: { notes: 'x' } })).ok).toBe(true);
-    expect((await call(h, 'days.delete', { tripId: 1, dayId: 3 })).ok).toBe(true);
-    expect((await call(h, 'days.update', { tripId: 1, dayId: 99, input: {} })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'itinerary.assign', { tripId: 1, dayId: 3, placeId: 7 })).ok).toBe(true);
-    expect((await call(h, 'itinerary.assign', { tripId: 1, dayId: 99, placeId: 7 })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'itinerary.assign', { tripId: 1, dayId: 3, placeId: 99 })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'itinerary.unassign', { tripId: 1, assignmentId: 30 })).ok).toBe(true);
-    expect((await call(h, 'itinerary.unassign', { tripId: 1, assignmentId: 99 })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
   // #1705: a plugin itinerary write has to reach open sessions exactly like the REST
   // route. The delete payload needs the dayId the client reducer evicts by, and both
   // directions run the same journey-skeleton reconcile the controller/MCP tool run.
-  it('itinerary writes carry the dayId the client evicts by and re-mirror linked journeys', async () => {
-    const h = host('db:write:itinerary');
-    const reconcile = vi.mocked(assignmentsStub.reconcile);
-
-    reconcile.mockClear();
-    expect((await call(h, 'itinerary.assign', { tripId: 1, dayId: 3, placeId: 7 })).ok).toBe(true);
-    expect(reconcile).toHaveBeenCalledWith(1);
-
-    reconcile.mockClear();
-    expect((await call(h, 'itinerary.unassign', { tripId: 1, assignmentId: 30 })).ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'assignment:deleted', { assignmentId: 30, dayId: 3 });
-    expect(reconcile).toHaveBeenCalledWith(1);
-
-    // A refused unassign deletes nothing, so it must not touch the journeys either.
-    reconcile.mockClear();
-    expect((await call(h, 'itinerary.unassign', { tripId: 1, assignmentId: 99 })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect(reconcile).not.toHaveBeenCalled();
-  });
-
   it('trips.update: archive/cover need their own permission; service errors map to RPC codes', async () => {
     const h = host('db:write:trips');
     expect((await call(h, 'trips.update', { tripId: 1, input: { title: 'T' } })).ok).toBe(true);

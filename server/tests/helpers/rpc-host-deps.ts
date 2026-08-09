@@ -8,6 +8,9 @@ import { TodoRpc } from '../../src/nest/todo/todo.rpc';
 import { DayNotesRpc } from '../../src/nest/days/day-notes.rpc';
 import { PackingRpc } from '../../src/nest/packing/packing.rpc';
 import { FilesRpc } from '../../src/nest/files/files.rpc';
+import { PlacesRpc } from '../../src/nest/places/places.rpc';
+import { DaysRpc } from '../../src/nest/days/days.rpc';
+import { ItineraryRpc } from '../../src/nest/assignments/itinerary.rpc';
 
 /**
  * The stubbed HostDeps every plugin router test builds on. It used to live inside
@@ -190,5 +193,8 @@ export function allRpcControllers(): object[] {
     new DayNotesRpc(anyService(), anyService(), anyService()),
     new PackingRpc(anyService(), anyService(), anyService()),
     new FilesRpc(anyService(), anyService(), anyService(), anyService()),
+    new PlacesRpc(anyService(), anyService(), anyService(), anyService()),
+    new DaysRpc(anyService(), anyService(), anyService()),
+    new ItineraryRpc(anyService(), anyService(), anyService()),
   ];
 }

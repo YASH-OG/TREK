@@ -5,6 +5,7 @@ import { DaysMcp } from './days.mcp';
 import { DayNotesController } from './day-notes.controller';
 import { DayNotesService } from './day-notes.service';
 import { DayNotesRpc } from './day-notes.rpc';
+import { DaysRpc } from './days.rpc';
 import { PluginGuardsModule } from '../plugins/host/plugin-guards.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { DayNotesMcp } from './day-notes.mcp';
@@ -25,7 +26,7 @@ import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [PermissionsModule, QueryHelpersModule, PlacesModule, AuthModule, RealtimeModule, PluginGuardsModule],
   controllers: [DaysController, DayNotesController],
-  providers: [DaysService, DaysMcp, DayNotesService, DayNotesMcp, DayNotesRpc],
+  providers: [DaysService, DaysMcp, DayNotesService, DayNotesMcp, DayNotesRpc, DaysRpc],
   exports: [DaysService, DayNotesService],
 })
 export class DaysModule {}

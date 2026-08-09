@@ -367,82 +367,11 @@ export class PluginHostDepsFactory {
       // without the hooks it keeps the old title/location — or a dead entry — until
       // somebody reloads it. ---
       canEditPlaces: (tripId, userId) => this.canEditTripAs('place_edit', tripId, userId),
-      createPlace: (tripId, input) => {
-        const place = this.places.create(String(tripId), input as unknown as PlaceCreateInput);
-        this.realtime.broadcast(tripId, 'place:created', { place });
-        mirrorJourneys(() => this.journey.onPlaceCreated(Number(tripId), place.id));
-        return place;
-      },
-      updatePlace: (tripId, placeId, input) => {
-        const place = this.places.update(String(tripId), String(placeId), input as PlaceUpdateInput);
-        if (place === null) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
-        this.realtime.broadcast(tripId, 'place:updated', { place });
-        mirrorJourneys(() => this.journey.onPlaceUpdated(Number(placeId)));
-        return place;
-      },
-      deletePlace: (tripId, placeId) => {
-        // Scope the id to the trip before anything else: onPlaceDeleted keys on the
-        // place alone, so an id belonging to a foreign trip would detach that trip's
-        // journey entries even though the delete below refuses it.
-        if (!this.places.get(String(tripId), String(placeId))) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
-        // Ahead of the DELETE, like the REST route and the MCP tool: journey_entries
-        // .source_place_id is ON DELETE SET NULL, so afterwards the hook finds nothing
-        // left to detach and the entries linger as orphans.
-        mirrorJourneys(() => this.journey.onPlaceDeleted(Number(placeId)));
-        const deleted = this.places.remove(String(tripId), String(placeId));
-        if (!deleted) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
-        this.realtime.broadcast(tripId, 'place:deleted', { placeId });
-        return { deleted: true };
-      },
       // --- Days (day_edit). getDay scopes the row to the trip before any write. ---
       canEditDays: (tripId, userId) => this.canEditTripAs('day_edit', tripId, userId),
-      createDay: (tripId, input) => {
-        const i = input as { date?: string; notes?: string };
-        const day = this.days.create(tripId, i.date, i.notes);
-        this.realtime.broadcast(tripId, 'day:created', { day });
-        return day;
-      },
-      updateDay: (tripId, dayId, input) => {
-        const current = this.days.getDay(dayId, tripId);
-        if (!current) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
-        const day = this.days.update(dayId, current, input as { notes?: string; title?: string | null });
-        this.realtime.broadcast(tripId, 'day:updated', { day });
-        return day;
-      },
-      deleteDay: (tripId, dayId) => {
-        const current = this.days.getDay(dayId, tripId);
-        if (!current) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
-        this.days.remove(dayId);
-        this.realtime.broadcast(tripId, 'day:deleted', { dayId });
-        return { deleted: true };
-      },
       // --- Itinerary (day_edit). Both the day AND the place must belong to the trip,
       // so a plugin can't cross-link another trip's rows (AssignmentsService doesn't
       // self-check this — the controllers do, so we reproduce it here). ---
-      assignPlaceToDay: (tripId, dayId, placeId, notes) => {
-        if (!this.assignments.dayExists(dayId, tripId)) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
-        if (!this.assignments.placeExists(placeId, tripId)) throw new ForbiddenResource(`no place ${placeId} on trip ${tripId}`);
-        const assignment = this.assignments.createAssignment(dayId, placeId, notes);
-        this.realtime.broadcast(tripId, 'assignment:created', { assignment });
-        this.assignments.reconcile(tripId);
-        return assignment;
-      },
-      unassignPlace: (tripId, assignmentId) => {
-        const existing = this.assignments.getAssignmentForTrip(assignmentId, tripId);
-        if (!existing) throw new ForbiddenResource(`no assignment ${assignmentId} on trip ${tripId}`);
-        this.assignments.deleteAssignment(assignmentId);
-        // Same payload shape as the REST/MCP delete, so client stores can
-        // evict the assignment from the right day. The dayId is what the client
-        // reducer keys the eviction on — without it nothing leaves the day.
-        this.realtime.broadcast(tripId, 'assignment:deleted', { assignmentId, dayId: existing.day_id });
-        // Create, delete, move and time re-mirror the linked journey skeletons
-        // afterwards, in the controller and in the MCP tool alike (reorder,
-        // transport and participants don't). Without it an open journey keeps
-        // the removed place until the next reload. No sid — a plugin has no
-        // originating socket.
-        this.assignments.reconcile(tripId);
-        return { deleted: true };
-      },
       // --- Trip creation (trip_create; owner = acting user). No broadcast — a new trip
       // is only visible to its owner, who refetches (same as the REST POST). ---
       canCreateTrip: (userId) => {

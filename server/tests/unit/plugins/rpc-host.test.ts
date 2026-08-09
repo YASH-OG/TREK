@@ -662,51 +662,11 @@ describe('PluginRpcHost — capability enforcement', () => {
   });
 
   // --- Planner writes (#1429) ---
-  it('db:write:places creates a place on a trip the acting user may edit', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:places']), deps);
-    const res = await host.dispatch(req('places.create', { tripId: 1, input: { name: 'Fushimi Inari' } }), 42);
-    expect(ok(res)).toBe(true);
-    expect(deps.createPlace).toHaveBeenCalledWith(1, expect.objectContaining({ name: 'Fushimi Inari' }));
-  });
-
-  it('places.create rejects an over-long string field (mirrors the REST STRING_LIMITS)', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:places']), deps);
-    const res = await host.dispatch(req('places.create', { tripId: 1, input: { name: 'A'.repeat(201) } }), 42);
-    expect((res as RpcError).error.code).toBe('BAD_PARAMS');
-    expect(deps.createPlace).not.toHaveBeenCalled();
-  });
-
+  // The places, days and itinerary cases moved to their own domain suites.
   it('places.create is PERMISSION_DENIED without db:write:places', async () => {
     const host = new PluginRpcHost('p', new Set(['db:read:trips']), deps);
     const res = await host.dispatch(req('places.create', { tripId: 1, input: { name: 'X' } }), 42);
     expect((res as RpcError).error.code).toBe('PERMISSION_DENIED');
-  });
-
-  it('places.create is RESOURCE_FORBIDDEN on a trip the acting user cannot edit', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:places']), deps);
-    const res = await host.dispatch(req('places.create', { tripId: 2, input: { name: 'X' } }), 42);
-    expect((res as RpcError).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect(deps.createPlace).not.toHaveBeenCalled();
-  });
-
-  it('places.create with no bound acting user is RESOURCE_FORBIDDEN (jobs / forged calls)', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:places']), deps);
-    const res = await host.dispatch(req('places.create', { tripId: 1, input: { name: 'X' } }), undefined);
-    expect((res as RpcError).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
-  it('places.create with an invalid payload (no name) is BAD_PARAMS', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:places']), deps);
-    const res = await host.dispatch(req('places.create', { tripId: 1, input: {} }), 42);
-    expect((res as RpcError).error.code).toBe('BAD_PARAMS');
-    expect(deps.createPlace).not.toHaveBeenCalled();
-  });
-
-  it('db:write:itinerary assigns a place to a day (day_edit gated)', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:itinerary']), deps);
-    const res = await host.dispatch(req('itinerary.assign', { tripId: 1, dayId: 3, placeId: 10 }), 42);
-    expect(ok(res)).toBe(true);
-    expect(deps.assignPlaceToDay).toHaveBeenCalledWith(1, 3, 10, null);
   });
 
   it('db:write:trips updates a trip the acting user may edit', async () => {
