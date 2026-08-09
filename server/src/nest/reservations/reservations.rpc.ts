@@ -6,7 +6,7 @@ import {
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { ReservationsService } from './reservations.service';
@@ -34,7 +34,7 @@ export class ReservationsRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'reservation');
     const parsed = reservationCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid reservation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid reservation: ${schemaMessage(parsed.error)}`);
     const input = parsed.data as Record<string, unknown>;
     this.requireValidEndpoints(input.endpoints);
     this.guards.requireTripEdit(tripId, actor, RESERVATION_EDIT_ACTION);
@@ -53,7 +53,7 @@ export class ReservationsRpc {
     const reservationId = num(params.reservationId, 'reservationId');
     const actor = this.guards.requireActor(ctx, 'reservation');
     const parsed = reservationUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid reservation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid reservation: ${schemaMessage(parsed.error)}`);
     const input = parsed.data as Record<string, unknown>;
     this.requireValidEndpoints(input.endpoints);
     this.guards.requireTripEdit(tripId, actor, RESERVATION_EDIT_ACTION);
@@ -94,7 +94,7 @@ export class ReservationsRpc {
   private requireValidEndpoints(value: unknown): void {
     if (value === undefined) return;
     const parsed = reservationEndpointsInputSchema.safeParse(value);
-    if (!parsed.success) throw new BadParams(`invalid endpoints: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid endpoints: ${schemaMessage(parsed.error)}`);
   }
 
   /** Fire-and-forget, exactly as the REST controller sends it, so it never blocks the write. */

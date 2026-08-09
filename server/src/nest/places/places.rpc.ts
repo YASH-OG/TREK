@@ -2,7 +2,7 @@ import { placeCreateRequestSchema, placeUpdateRequestSchema } from '@trek/shared
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { JourneyDomainService } from '../journey/journey-domain.service';
@@ -39,7 +39,7 @@ export class PlacesRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'place');
     const parsed = placeCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid place: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid place: ${schemaMessage(parsed.error)}`);
     this.guards.capStrings(parsed.data as Record<string, unknown>, PLACE_STR_LIMITS);
     this.guards.requireTripEdit(tripId, actor, PLACE_EDIT_ACTION);
     const place = this.places.create(String(tripId), parsed.data as unknown as PlaceCreateInput);
@@ -54,7 +54,7 @@ export class PlacesRpc {
     const placeId = num(params.placeId, 'placeId');
     const actor = this.guards.requireActor(ctx, 'place');
     const parsed = placeUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid place: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid place: ${schemaMessage(parsed.error)}`);
     this.guards.capStrings(parsed.data as Record<string, unknown>, PLACE_STR_LIMITS);
     this.guards.requireTripEdit(tripId, actor, PLACE_EDIT_ACTION);
     const place = this.places.update(String(tripId), String(placeId), parsed.data as PlaceUpdateInput);

@@ -7,7 +7,7 @@ import {
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { ADDON_IDS } from '../../addons';
 import { CollectionsService } from './collections.service';
@@ -48,7 +48,7 @@ export class CollectionsRpc {
   @PluginMethod('collections.create', { permission: 'db:write:collections' })
   create(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
     const parsed = collectionCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid collection: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid collection: ${schemaMessage(parsed.error)}`);
     const userId = this.requireCollectionsUser(ctx, 'writes');
     this.requireCollectionsAddon();
     return this.mapCollectionError(() => this.collections.createCollection(userId, parsed.data as never));
@@ -57,7 +57,7 @@ export class CollectionsRpc {
   @PluginMethod('collections.update', { permission: 'db:write:collections' })
   update(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
     const parsed = collectionUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid collection: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid collection: ${schemaMessage(parsed.error)}`);
     const userId = this.requireCollectionsUser(ctx, 'writes');
     const id = num(params.id, 'id');
     this.requireCollectionsAddon();
@@ -67,7 +67,7 @@ export class CollectionsRpc {
   @PluginMethod('collections.savePlace', { permission: 'db:write:collections' })
   savePlace(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
     const parsed = collectionSavePlaceRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid place: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid place: ${schemaMessage(parsed.error)}`);
     const userId = this.requireCollectionsUser(ctx, 'writes');
     this.requireCollectionsAddon();
     return this.mapCollectionError(() => this.collections.savePlace(userId, parsed.data as never, undefined));
@@ -76,7 +76,7 @@ export class CollectionsRpc {
   @PluginMethod('collections.copyToTrip', { permission: 'db:write:collections' })
   copyToTrip(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
     const parsed = collectionCopyToTripRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid copy request: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid copy request: ${schemaMessage(parsed.error)}`);
     const userId = this.requireCollectionsUser(ctx, 'writes');
     this.requireCollectionsAddon();
     return this.mapCollectionError(() => this.collections.copyToTrip(userId, parsed.data as never));

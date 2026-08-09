@@ -41,3 +41,15 @@ export function asTxOps(v: unknown): Array<{ sql: string; args?: unknown[] }> {
 export function asPayload(v: unknown): Record<string, unknown> {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : { value: v };
 }
+
+/**
+ * The message a failed Zod parse should carry into BAD_PARAMS.
+ *
+ * Every handler used to inline `error.issues[0]?.message ?? 'bad input'`, twenty
+ * copies of the same two-branch fallback that no test could reach, because a real
+ * parse failure always reports at least one issue. One copy is testable; twenty are
+ * twenty permanently uncovered branches.
+ */
+export function schemaMessage(error: { issues?: Array<{ message?: string }> }): string {
+  return error.issues?.[0]?.message ?? 'bad input';
+}

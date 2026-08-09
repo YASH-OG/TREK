@@ -2,7 +2,7 @@ import { packingCreateItemRequestSchema, packingUpdateItemRequestSchema } from '
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { asPayload, num } from '../plugins/host/rpc-params';
+import { asPayload, num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { PackingService } from './packing.service';
@@ -45,7 +45,7 @@ export class PackingRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'packing item');
     const parsed = packingCreateItemRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid packing item: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid packing item: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, PACKING_EDIT_ACTION);
     const item = this.packing.createItem(String(tripId), parsed.data as never, actor) as PrivacyItem;
     this.packing.emitToViewers(String(tripId), 'packing:created', { item }, item, undefined);
@@ -58,7 +58,7 @@ export class PackingRpc {
     const itemId = num(params.itemId, 'itemId');
     const actor = this.guards.requireActor(ctx, 'packing item');
     const parsed = packingUpdateItemRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid packing item: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid packing item: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, PACKING_EDIT_ACTION);
     // Read the privacy BEFORE the write, so a public/private toggle routes correctly.
     const before = this.packing.getItemPrivacy(tripId, itemId);

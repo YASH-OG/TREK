@@ -2,7 +2,7 @@ import { budgetCreateItemRequestSchema, budgetUpdateItemRequestSchema } from '@t
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { DatabaseService } from '../database/database.service';
@@ -60,7 +60,7 @@ export class CostsRpc {
     const actor = this.requireCostActor(ctx);
     this.requireBudgetAddon();
     const parsed = budgetCreateItemRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid cost: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid cost: ${schemaMessage(parsed.error)}`);
     this.requireCostEdit(tripId, actor);
     // BudgetService.create freezes the FX rate and resolves members/payers, so the
     // plugin path produces the same row the web app would.
@@ -76,7 +76,7 @@ export class CostsRpc {
     const actor = this.requireCostActor(ctx);
     this.requireBudgetAddon();
     const parsed = budgetUpdateItemRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid cost: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid cost: ${schemaMessage(parsed.error)}`);
     this.requireCostEdit(tripId, actor);
     // update re-freezes the FX rate on a currency change, exactly like create.
     const item = await this.budget.update(String(itemId), String(tripId), parsed.data);

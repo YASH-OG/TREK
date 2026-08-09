@@ -2,7 +2,7 @@ import { tripCreateRequestSchema, tripUpdateRequestSchema } from '@trek/shared';
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { DatabaseService } from '../database/database.service';
@@ -110,7 +110,7 @@ export class TripsRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'trip');
     const parsed = tripUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid trip: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid trip: ${schemaMessage(parsed.error)}`);
     this.guards.capStrings(parsed.data as Record<string, unknown>, TRIP_STR_LIMITS);
     this.guards.requireTripEdit(tripId, actor, TRIP_EDIT_ACTION);
     const input = parsed.data as Record<string, unknown>;
@@ -142,7 +142,7 @@ export class TripsRpc {
     // No broadcast: a new trip is only visible to its owner, who refetches.
     const actor = this.guards.requireActor(ctx, 'trip');
     const parsed = tripCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid trip: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid trip: ${schemaMessage(parsed.error)}`);
     this.guards.capStrings(parsed.data as Record<string, unknown>, TRIP_STR_LIMITS);
     if (!this.canCreateTrip(actor)) throw new ForbiddenResource('no permission to create trips');
     try {

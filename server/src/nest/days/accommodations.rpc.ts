@@ -2,7 +2,7 @@ import { accommodationCreateRequestSchema, accommodationUpdateRequestSchema } fr
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { DaysService } from './days.service';
@@ -45,7 +45,7 @@ export class AccommodationsRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'accommodation');
     const parsed = accommodationCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid accommodation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid accommodation: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, ACCOMMODATION_EDIT_ACTION);
     const input = parsed.data as AccommodationInput;
     const placeId = Math.trunc(Number(input.place_id));
@@ -77,7 +77,7 @@ export class AccommodationsRpc {
     const accommodationId = num(params.accommodationId, 'accommodationId');
     const actor = this.guards.requireActor(ctx, 'accommodation');
     const parsed = accommodationUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid accommodation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid accommodation: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, ACCOMMODATION_EDIT_ACTION);
     const existing = this.days.getAccommodation(accommodationId, tripId);
     if (!existing) throw new ForbiddenResource(`no accommodation ${accommodationId} on trip ${tripId}`);

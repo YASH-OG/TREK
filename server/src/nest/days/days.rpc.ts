@@ -2,7 +2,7 @@ import { dayCreateRequestSchema, dayUpdateRequestSchema } from '@trek/shared';
 import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
 import { PluginGuards } from '../plugins/host/plugin-guards.service';
 import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num } from '../plugins/host/rpc-params';
+import { num, schemaMessage } from '../plugins/host/rpc-params';
 import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
 import { RealtimeService } from '../realtime/realtime.service';
 import { DaysService } from './days.service';
@@ -28,7 +28,7 @@ export class DaysRpc {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'day');
     const parsed = dayCreateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid day: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid day: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
     const input = parsed.data as { date?: string; notes?: string };
     const day = this.days.create(tripId, input.date, input.notes);
@@ -42,7 +42,7 @@ export class DaysRpc {
     const dayId = num(params.dayId, 'dayId');
     const actor = this.guards.requireActor(ctx, 'day');
     const parsed = dayUpdateRequestSchema.safeParse(params.input);
-    if (!parsed.success) throw new BadParams(`invalid day: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
+    if (!parsed.success) throw new BadParams(`invalid day: ${schemaMessage(parsed.error)}`);
     this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
     // getDay scopes the row to the trip before the write touches it.
     const current = this.days.getDay(dayId, tripId);
