@@ -115,6 +115,43 @@ describe('PackingRpc through the router', () => {
     expect(f.data.setBagMembers).toHaveBeenCalledWith('1', '80', [5, 6]);
   });
 
+  it('PACKING-RPC-007b a non-string bag colour is dropped rather than stored', async () => {
+    const f = build();
+    await f.host('db:write:packing').dispatch(req('packing.createBag', { tripId: 1, input: { name: 'Bag', color: 42 } }), 42);
+    expect(f.data.createBag).toHaveBeenCalledWith('1', { name: 'Bag', color: undefined });
+  });
+
+  it('PACKING-RPC-007c a non-array userIds becomes an empty list', async () => {
+    const f = build();
+    await f.host('db:write:packing').dispatch(req('packing.setBagMembers', { tripId: 1, bagId: 80, userIds: 'nope' }), 42);
+    expect(f.data.setBagMembers).toHaveBeenCalledWith('1', '80', []);
+  });
+
+  it('PACKING-RPC-007d a missing bag is refused across every bag write', async () => {
+    const f = build();
+    const host = f.host('db:write:packing');
+    for (const [method, params] of [
+      ['packing.updateBag', { tripId: 1, bagId: 404, input: {} }],
+      ['packing.deleteBag', { tripId: 1, bagId: 404 }],
+      ['packing.setBagMembers', { tripId: 1, bagId: 404, userIds: [] }],
+    ] as const) {
+      expect(((await host.dispatch(req(method, params), 42)) as RpcError).error.message).toBe('no packing bag 404 on trip 1');
+    }
+  });
+
+  it('PACKING-RPC-007e an invalid item payload is BAD_PARAMS on create and update alike', async () => {
+    const f = build();
+    const host = f.host('db:write:packing');
+    expect(((await host.dispatch(req('packing.create', { tripId: 1, input: { name: 42 } }), 42)) as RpcError).error.code).toBe('BAD_PARAMS');
+    expect(((await host.dispatch(req('packing.update', { tripId: 1, itemId: 70, input: { name: 42 } }), 42)) as RpcError).error.code).toBe('BAD_PARAMS');
+  });
+
+  it('PACKING-RPC-007f deleting a missing item is refused', async () => {
+    const f = build();
+    const res = (await f.host('db:write:packing').dispatch(req('packing.delete', { tripId: 1, itemId: 404 }), 42)) as RpcError;
+    expect(res.error.message).toBe('no packing item 404 on trip 1');
+  });
+
   it('PACKING-RPC-008 the class is listed in its module providers', () => {
     expect(Reflect.getMetadata('providers', PackingModule) as unknown[]).toContain(PackingRpc);
   });

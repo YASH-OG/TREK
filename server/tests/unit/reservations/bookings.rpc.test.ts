@@ -132,6 +132,43 @@ describe('ReservationsRpc', () => {
     expect(f.reservations.notifyBookingChange).not.toHaveBeenCalled();
   });
 
+  it('BOOK-RPC-008b title and type are required by the shared schema', async () => {
+    const f = build();
+    // The handler still carries ?? '' fallbacks behind this, kept from the router as
+    // defence in depth, but the schema is what a plugin actually hits first.
+    const res = (await f.host().dispatch(req('reservations.create', { tripId: 1, input: {} }), 42)) as RpcError;
+    expect(res.error.code).toBe('BAD_PARAMS');
+    expect(f.reservations.create).not.toHaveBeenCalled();
+  });
+
+  it('BOOK-RPC-008c an update without a title keeps the current one', async () => {
+    const f = build();
+    await f.host().dispatch(req('reservations.update', { tripId: 1, reservationId: 5, input: {} }), 42);
+    // Falls back to the stored title and type rather than blanking them.
+    expect(f.reservations.notifyBookingChange).toHaveBeenCalledWith(1, 42, 'Hotel', 'lodging');
+  });
+
+  it('BOOK-RPC-008d a non-lodging booking cascades nothing', async () => {
+    const f = build();
+    await f.host().dispatch(req('reservations.create', { tripId: 1, input: { title: 'Museum', type: 'activity' } }), 42);
+    expect(events(f.realtime)).toEqual(['reservation:created']);
+    f.realtime.broadcast.mockClear();
+    await f.host().dispatch(req('reservations.update', { tripId: 1, reservationId: 5, input: { title: 'x', type: 'activity' } }), 42);
+    expect(events(f.realtime)).toEqual(['reservation:updated']);
+    f.realtime.broadcast.mockClear();
+    await f.host().dispatch(req('reservations.delete', { tripId: 1, reservationId: 5 }), 42);
+    expect(events(f.realtime)).toEqual(['reservation:deleted']);
+  });
+
+  it('BOOK-RPC-008e an update with a malformed endpoints array is BAD_PARAMS too', async () => {
+    const f = build();
+    const res = (await f.host().dispatch(
+      req('reservations.update', { tripId: 1, reservationId: 5, input: { title: 'x', type: 'lodging', endpoints: [{ nonsense: true }] } }), 42,
+    )) as RpcError;
+    expect(res.error.code).toBe('BAD_PARAMS');
+    expect(f.reservations.update).not.toHaveBeenCalled();
+  });
+
   it('BOOK-RPC-009 the class is listed in its module providers', () => {
     expect(Reflect.getMetadata('providers', ReservationsModule) as unknown[]).toContain(ReservationsRpc);
   });
@@ -183,6 +220,25 @@ describe('AccommodationsRpc', () => {
       .toBe('no accommodation 404 on trip 1');
     expect(((await f.host().dispatch(req('accommodations.delete', { tripId: 1, accommodationId: 404 }), 42)) as RpcError).error.message)
       .toBe('no accommodation 404 on trip 1');
+  });
+
+  it('BOOK-RPC-015b optional block fields are passed through, absent ones as undefined', async () => {
+    const f = build();
+    await f.host().dispatch(req('accommodations.create', { tripId: 1, input: { place_id: 7, start_day_id: 3, end_day_id: 4, check_in: '15:00', notes: 'late' } }), 42);
+    expect(f.days.createAccommodation).toHaveBeenCalledWith(1, expect.objectContaining({ check_in: '15:00', notes: 'late', check_out: undefined }));
+  });
+
+  it('BOOK-RPC-015c an update with a bad ref is refused before the write', async () => {
+    const f = build();
+    const res = (await f.host().dispatch(req('accommodations.update', { tripId: 1, accommodationId: 11, input: { place_id: 404 } }), 42)) as RpcError;
+    expect(res.error.message).toBe('place 404 is not on this trip');
+    expect(f.days.updateAccommodation).not.toHaveBeenCalled();
+  });
+
+  it('BOOK-RPC-015d deleting a block without a partner cascades only its own event', async () => {
+    const f = build();
+    await f.host().dispatch(req('accommodations.delete', { tripId: 1, accommodationId: 11 }), 42);
+    expect(events(f.realtime)).toEqual(['accommodation:deleted']);
   });
 
   it('BOOK-RPC-016 the class is listed in its module providers', () => {
