@@ -237,20 +237,6 @@ export class PluginHostDepsFactory {
       },
       // --- Member add (member_manage). Grants trip access — the target must exist;
       // the acting user is recorded as the inviter. Owner/duplicate adds are no-ops. ---
-      canManageMembers: (tripId, userId) => this.canEditTripAs('member_manage', tripId, userId),
-      addTripMember: (tripId, targetUserId, invitedBy) => {
-        const target = this.db.prepare('SELECT id FROM users WHERE id = ?').get(targetUserId) as { id: number } | undefined;
-        if (!target) throw new ForbiddenResource(`no user ${targetUserId}`);
-        return this.membership.joinTripAsMember(tripId, targetUserId, invitedBy);
-      },
-      removeTripMember: (tripId, targetUserId) => {
-        // Never remove the OWNER via this path — that would orphan the trip. Ownership
-        // transfer is a separate, deliberate action, not a member-management side effect.
-        const trip = this.db.prepare('SELECT user_id FROM trips WHERE id = ?').get(tripId) as { user_id: number } | undefined;
-        if (trip && trip.user_id === targetUserId) throw new ForbiddenResource('cannot remove the trip owner');
-        this.trips.removeMember(tripId, targetUserId);
-        return { removed: true };
-      },
       // --- Host-mediated notifications. Recipient resolution + channel fan-out +
       // per-user preferences are all owned by NotificationsService.send; the plugin
       // supplies only the target (host-scoped by the router) + plain text. actorId is
@@ -366,6 +352,8 @@ export class PluginHostDepsFactory {
       // linked to the trip carries a skeleton entry per day-assigned place, and
       // without the hooks it keeps the old title/location — or a dead entry — until
       // somebody reloads it. ---
+      // Consumed by the db:meta gate; the trip writes themselves have moved.
+      canEditTrip: (tripId, userId) => this.canEditTripAs('trip_edit', tripId, userId),
       canEditPlaces: (tripId, userId) => this.canEditTripAs('place_edit', tripId, userId),
       // --- Days (day_edit). getDay scopes the row to the trip before any write. ---
       canEditDays: (tripId, userId) => this.canEditTripAs('day_edit', tripId, userId),
@@ -374,59 +362,14 @@ export class PluginHostDepsFactory {
       // self-check this — the controllers do, so we reproduce it here). ---
       // --- Trip creation (trip_create; owner = acting user). No broadcast — a new trip
       // is only visible to its owner, who refetches (same as the REST POST). ---
-      canCreateTrip: (userId) => {
-        const u = this.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role?: string } | undefined;
-        return this.permissions.checkPermission('trip_create', u?.role ?? 'user', null, userId, false);
-      },
-      createTripForUser: (userId, input) => {
-        try {
-          const result = this.trips.create(userId, input as unknown as Parameters<TripsService['create']>[1]);
-          return result.trip;
-        } catch (e) {
-          if (e instanceof ValidationError) throw new BadParams(e.message);
-          throw e;
-        }
-      },
       // --- Exchange rates: the same cached upstream feed the budget uses (tenant-free). ---
       // --- Trip (trip_edit). Only the schema-writable fields reach updateTrip; its
       // NotFound/Validation errors are mapped to clean RPC codes. ---
-      canEditTrip: (tripId, userId) => this.canEditTripAs('trip_edit', tripId, userId),
-      updateTrip: (tripId, userId, input) => {
-        // The REST controller gates two fields behind their OWN admin-configurable
-        // permissions, separate from trip_edit — reproduce that here so a plugin (or
-        // its member user) can't archive or re-cover a trip it may only edit.
-        if ('is_archived' in input && !this.canEditTripAs('trip_archive', tripId, userId)) {
-          throw new ForbiddenResource(`no permission to archive trip ${tripId}`);
-        }
-        if ('cover_image' in input && !this.canEditTripAs('trip_cover_upload', tripId, userId)) {
-          throw new ForbiddenResource(`no permission to change the cover of trip ${tripId}`);
-        }
-        const u = this.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role?: string } | undefined;
-        try {
-          // The no-rebase updateTrip core — parity with the legacy host path,
-          // which never re-anchored the budget currency.
-          const result = this.trips.updateTrip(tripId, userId, input as Parameters<TripsService['updateTrip']>[2], u?.role ?? 'user');
-          this.realtime.broadcast(tripId, 'trip:updated', { trip: result.updatedTrip });
-          return result.updatedTrip;
-        } catch (e) {
-          if (e instanceof ValidationError) throw new BadParams(e.message);
-          if (e instanceof NotFoundError) throw new ForbiddenResource(e.message);
-          throw e;
-        }
-      },
       // --- Cross-trip reads. The membership predicate is baked into listTrips, so a
       // plugin only ever sees the acting user's own trips/reservations (no raw
       // cross-tenant SELECT). Reuses the same hydrated services as the REST paths. ---
-      listTripsForUser: (userId) => this.trips.list(userId, null),
-      listReservationsForUser: (userId) => {
-        const trips = this.trips.list(userId, null) as Array<{ id: number }>;
-        return trips.flatMap((t) => this.reservations.list(String(t.id)));
-      },
       // --- Trip-scoped hydrated reads (membership already checked by tripRead). Same
       // services as the REST GETs, so plugins see the exact planner shapes. ---
-      listTripDays: (tripId) => (this.days.list(tripId) as { days: unknown[] }).days,
-      listTripReservations: (tripId) => this.reservations.list(String(tripId)),
-      listTripAccommodations: (tripId) => this.days.listAccommodations(tripId) as unknown[],
       // --- Accommodations (lodging blocks, day_edit). Delegates to DaysService so the
       // partner hotel reservation, the metadata sync and the delete cascade behave
       // exactly like the accommodations REST controller, cascade broadcasts included. ---
@@ -596,14 +539,6 @@ export class PluginHostDepsFactory {
         this.notifyBooking(actingUserId, tripId, deleted.title, deleted.type || '');
         return { deleted: true };
       },
-      // --- Packing (packing_edit). Reuses PackingService + replicates the #858
-      // privacy-scoped broadcasts (create/delete via emitPackingToViewers, update via
-      // the four-case broadcastPackingUpdate) so a private item never leaks room-wide. ---
-      // --- Packing bags (no privacy — plain room broadcasts). ---
-      // --- Read-convenience: weather (host cache, tenant-free), categories (global), roster ---
-      tripMembers: (tripId) =>
-        this.db.prepare('SELECT u.id, u.username, u.display_name, u.avatar FROM trip_members tm JOIN users u ON u.id = tm.user_id WHERE tm.trip_id = ?').all(tripId) as unknown[],
-      // --- Todos (core, trip-scoped; the app's 'packing_edit' permission). ---
       // --- Plugin metadata (db:meta). A per-plugin namespaced key/value store keyed
       // to a core entity; the plugin only ever sees rows tagged with its own id. ---
       metaEntityTrip: (entityType, entityId) => {

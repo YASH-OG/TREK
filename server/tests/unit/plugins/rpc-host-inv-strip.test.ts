@@ -13,10 +13,24 @@ import { makeDeps } from '../../helpers/rpc-host-deps';
 import { createTestPluginRegistry } from '../../../src/nest/plugins/host/rpc-kit/testing';
 import { PackingRpc } from '../../../src/nest/packing/packing.rpc';
 import type { PackingService } from '../../../src/nest/packing/packing.service';
-import type { PluginGuards } from '../../../src/nest/plugins/host/plugin-guards.service';
 import type { RealtimeService } from '../../../src/nest/realtime/realtime.service';
+import { TripsRpc } from '../../../src/nest/trips/trips.rpc';
+import { PluginGuards } from '../../../src/nest/plugins/host/plugin-guards.service';
+import type { DatabaseService } from '../../../src/nest/database/database.service';
 
 const req = (method: string, params: Record<string, unknown>): RpcRequest => ({ k: 'req', id: 'x', method, params });
+
+/** trips.getById lives on the decorators now, so the audit cases bind it through them. */
+const tripsRegistry = () => {
+  const db = {
+    canAccessTrip: (tripId: number, userId: number) => (tripId === 1 && userId === 42 ? { id: 1, user_id: 42 } : undefined),
+    prepare: () => ({ get: () => ({ id: 1, title: 'Japan' }), all: () => [] }),
+  } as unknown as DatabaseService;
+  const guards = new PluginGuards(db, {} as never, {} as never);
+  return createTestPluginRegistry([
+    new TripsRpc({} as never, {} as never, {} as never, {} as never, db, {} as never, guards),
+  ]);
+};
 
 describe('dispatch strips the supervisor _inv marker', () => {
   it('RPCINV-001 the handler never sees _inv', async () => {
@@ -37,7 +51,7 @@ describe('dispatch strips the supervisor _inv marker', () => {
   it('RPCINV-003 the audit row is unchanged, because auditResource reads named fields only', async () => {
     const deps = makeDeps();
     const audit = vi.fn();
-    const host = new PluginRpcHost('p', new Set(['db:read:trips']), { ...deps, audit });
+    const host = new PluginRpcHost('p', new Set(['db:read:trips']), { ...deps, audit }, tripsRegistry());
     await host.dispatch(req('trips.getById', { tripId: 1, _inv: 'req-7' }), 42);
     expect(audit).toHaveBeenCalledWith({
       pluginId: 'p',
@@ -50,7 +64,7 @@ describe('dispatch strips the supervisor _inv marker', () => {
 
   it('RPCINV-004 the acting user still comes from the host, not from the params', async () => {
     const deps = makeDeps();
-    const host = new PluginRpcHost('p', new Set(['db:read:trips']), deps);
+    const host = new PluginRpcHost('p', new Set(['db:read:trips']), deps, tripsRegistry());
     // No acting user bound: the trip read is refused even though _inv is present.
     const res = await host.dispatch(req('trips.getById', { tripId: 1, _inv: 'req-7' }));
     expect(res.ok).toBe(false);

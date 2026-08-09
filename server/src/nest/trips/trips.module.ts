@@ -12,6 +12,10 @@ import { AuditModule } from '../audit/audit.module';
 import { PlacesModule } from '../places/places.module';
 import { TripsController } from './trips.controller';
 import { TripsService } from './trips.service';
+import { TripsRpc } from './trips.rpc';
+import { PluginGuardsModule } from '../plugins/host/plugin-guards.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { TripMembershipModule } from '../trip-membership/trip-membership.module';
 import { AppConfigModule } from '../app-config/app-config.module';
 import { UnsplashModule } from '../unsplash/unsplash.module';
 import { TripsMcp } from './trips.mcp';
@@ -20,9 +24,9 @@ import { AuthModule } from '../auth/auth.module';
 /** Trips aggregate root (C1 — Phase 3). Uses exact strangler prefixes so it does
  *  not capture the nested sub-domain mounts (collab, files, ...). */
 @Module({
-  imports: [TodoModule, PackingModule, FilesModule, ReservationsModule, DaysModule, PermissionsModule, AuditModule, BudgetModule, CollabModule, VacayModule, PlacesModule, AuthModule, AppConfigModule, UnsplashModule],
+  imports: [TodoModule, PackingModule, FilesModule, ReservationsModule, DaysModule, PermissionsModule, AuditModule, BudgetModule, CollabModule, VacayModule, PlacesModule, AuthModule, AppConfigModule, UnsplashModule, RealtimeModule, PluginGuardsModule, TripMembershipModule],
   controllers: [TripsController],
-  providers: [TripsService, TripsMcp],
+  providers: [TripsService, TripsMcp, TripsRpc],
   // Exported for FeedsModule (ICS feeds) and PluginsModule (RPC host injection).
   exports: [TripsService],
 })

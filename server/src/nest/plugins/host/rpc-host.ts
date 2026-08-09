@@ -109,9 +109,6 @@ export interface HostDeps {
   voteCollabPoll(tripId: number, pollId: number, optionIndex: number, actingUserId: number): unknown;
   createCollabMessage(tripId: number, text: string, replyTo: number | undefined, actingUserId: number): unknown;
   // --- Member add (the DISTINCT member_manage permission — never bundled) ---
-  canManageMembers(tripId: number, userId: number): boolean;
-  addTripMember(tripId: number, targetUserId: number, invitedBy: number): unknown;
-  removeTripMember(tripId: number, targetUserId: number, actingUserId: number): unknown;
   /** The acting user's own journals (journey addon must be enabled). */
   listJournalsForUser(userId: number): unknown;
   /** The entries of one of the acting user's journeys (journey addon; access-checked). */
@@ -165,29 +162,22 @@ export interface HostDeps {
   /** Delete a budget item from a trip (and broadcast); returns { deleted: true }. */
   deleteCost(tripId: number, itemId: number): unknown;
   // --- Places (the 'place_edit' permission) ---
+  /** Still needed by the db:meta gate, which has not moved yet. */
+  canEditTrip(tripId: number, userId: number): boolean;
   canEditPlaces(tripId: number, userId: number): boolean;
   // --- Days + itinerary (the 'day_edit' permission) ---
   canEditDays(tripId: number, userId: number): boolean;
   /** Assign a place to a day (both trip-scoped by the wiring); returns the assignment. */
   /** Remove a day-assignment (trip-scoped by the wiring). */
   // --- Trip (the 'trip_edit' permission) ---
-  canEditTrip(tripId: number, userId: number): boolean;
-  updateTrip(tripId: number, userId: number, input: Record<string, unknown>): unknown;
   // --- Trip creation (the 'trip_create' permission; owner = acting user) ---
-  canCreateTrip(userId: number): boolean;
-  createTripForUser(userId: number, input: Record<string, unknown>): unknown;
   // --- Exchange rates (tenant-free, like weather) ---
   // --- Cross-trip reads (membership baked in — every trip the acting user can access) ---
   /** Every trip the acting user owns or is a member of (the listTrips baseline). */
-  listTripsForUser(userId: number): unknown[];
   /** Every reservation across the acting user's accessible trips. */
-  listReservationsForUser(userId: number): unknown[];
   /** A trip's days with their assignments + day notes — the planner GET's shape. */
-  listTripDays(tripId: number): unknown[];
   /** A trip's reservations, hydrated like the REST list (endpoints, day_positions, joins). */
-  listTripReservations(tripId: number): unknown[];
   /** A trip's lodging blocks (day_accommodations) with the joined place fields. */
-  listTripAccommodations(tripId: number): unknown[];
   // --- Accommodations write (the 'day_edit' permission, like the accommodations REST path) ---
   /** Create a lodging block (auto-creates its partner hotel reservation + broadcasts); returns it. */
   createAccommodation(tripId: number, input: Record<string, unknown>): unknown;
@@ -209,7 +199,6 @@ export interface HostDeps {
   /** Delete a packing item; owner+recipients-scoped packing:deleted broadcast; returns { deleted: true }. */
   // --- Packing bags (packing_edit; no privacy — broadcast to the whole room) ---
   // --- Read-convenience: weather (tenant-free), categories (global), the trip roster ---
-  tripMembers(tripId: number): unknown[];
   // --- Tags (the acting user's own; no trip) ---
   // --- Todos (core, trip-scoped; the 'packing_edit' permission, like the REST path) ---
   // --- Plugin metadata on core entities (db:meta) ---
@@ -255,49 +244,8 @@ export class PluginRpcHost {
       this.methods.set('db.tx', (p) => deps.data.tx(asTxOps(p.ops)));
     }
 
-    if (has('db:read:trips')) {
-      this.methods.set('trips.getById', (p, uid) =>
-        this.tripRead(p, uid, () => deps.db.prepare('SELECT * FROM trips WHERE id = ?').get(num(p.tripId, 'tripId'))),
-      );
-      // The trip's place POOL — places carry no itinerary position of their own
-      // (day_id/order_index live on day_assignments), so order by created_at like
-      // the REST list does. Use trips.getDays for the day-ordered itinerary.
-      this.methods.set('trips.getPlaces', (p, uid) =>
-        this.tripRead(p, uid, () => deps.db.prepare('SELECT * FROM places WHERE trip_id = ? ORDER BY created_at DESC').all(num(p.tripId, 'tripId'))),
-      );
-      // Hydrated like the REST list (endpoints, day_positions, joins, normalized
-      // accommodation_id) — a strict superset of the raw row, so older callers
-      // only ever gain fields.
-      this.methods.set('trips.getReservations', (p, uid) =>
-        this.tripRead(p, uid, () => deps.listTripReservations(num(p.tripId, 'tripId'))),
-      );
-      // Days with their assignments + day notes: the read half of db:write:days —
-      // without it a writer can't even discover the day ids it may edit.
-      this.methods.set('trips.getDays', (p, uid) =>
-        this.tripRead(p, uid, () => deps.listTripDays(num(p.tripId, 'tripId'))),
-      );
-      // Lodging blocks (day_accommodations) with their joined place fields. Reads
-      // ride on db:read:trips like every other trip entity: the REST GET, too,
-      // asks only for trip access.
-      this.methods.set('trips.getAccommodations', (p, uid) =>
-        this.tripRead(p, uid, () => deps.listTripAccommodations(num(p.tripId, 'tripId'))),
-      );
-      // Cross-trip enumeration: every trip the acting user can access. Membership is
-      // baked into listTripsForUser, so there is no tripId to check — but a job/onLoad
-      // (no bound user) is refused, exactly like costs.listMine.
-      this.methods.set('trips.listMine', (_p, uid) => {
-        if (uid === undefined) throw new ForbiddenResource('trip reads require an authenticated user context');
-        return deps.listTripsForUser(uid);
-      });
-      // Cross-trip reservations feed (dashboards): reservations across every accessible
-      // trip. Same membership predicate + no-user refusal.
-      this.methods.set('reservations.listMine', (_p, uid) => {
-        if (uid === undefined) throw new ForbiddenResource('reservation reads require an authenticated user context');
-        return deps.listReservationsForUser(uid);
-      });
-      // The trip's member roster (ids + display fields only), membership-checked.
-      this.methods.set('trips.members', (p, uid) => this.tripRead(p, uid, () => deps.tripMembers(num(p.tripId, 'tripId'))));
-    }
+    // trips.*, reservations.listMine and the member roster now live in
+    // src/nest/trips/trips.rpc.ts.
     // files.* now lives in src/nest/files/files.rpc.ts.
     if (has('db:write:collab')) {
       // Collab content (notes/polls/messages) under the app's collab_edit right.
@@ -330,27 +278,6 @@ export class PluginRpcHost {
         if (typeof p.text !== 'string' || p.text.trim() === '' || p.text.length > 4000) throw new BadParams('message text is required (max 4000 chars)');
         this.requireTripEdit(tripId, actor, deps.canEditCollab);
         return deps.createCollabMessage(tripId, p.text, typeof p.replyTo === 'number' ? p.replyTo : undefined, actor);
-      });
-    }
-    if (has('db:write:members')) {
-      // Adding a member GRANTS TRIP ACCESS — deliberately its own permission behind
-      // the app's member_manage right (default: trip owner only), never bundled with
-      // a lower-risk write. The acting user is recorded as the inviter.
-      this.methods.set('trips.addMember', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const targetUserId = num(p.userId, 'userId');
-        const actor = this.requireActor(uid, 'trip member');
-        this.requireTripEdit(tripId, actor, deps.canManageMembers);
-        return deps.addTripMember(tripId, targetUserId, actor);
-      });
-      // Symmetry with addMember: a directory-sync integration must be able to reconcile
-      // DEPARTURES, not only additions. Same grant + the same manage-members gate.
-      this.methods.set('trips.removeMember', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const targetUserId = num(p.userId, 'userId');
-        const actor = this.requireActor(uid, 'trip member');
-        this.requireTripEdit(tripId, actor, deps.canManageMembers);
-        return deps.removeTripMember(tripId, targetUserId, actor);
       });
     }
 
@@ -571,31 +498,7 @@ export class PluginRpcHost {
 
     // itinerary.* now lives in src/nest/assignments/itinerary.rpc.ts.
 
-    if (has('db:write:trips')) {
-      this.methods.set('trips.update', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const actor = this.requireActor(uid, 'trip');
-        const parsed = tripUpdateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid trip: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        this.capStrings(parsed.data as Record<string, unknown>, TRIP_STR_LIMITS);
-        this.requireTripEdit(tripId, actor, deps.canEditTrip);
-        return deps.updateTrip(tripId, actor, parsed.data as Record<string, unknown>);
-      });
-    }
 
-    if (has('db:create:trips')) {
-      // Create a brand-new trip owned by the acting user — the capability that
-      // unlocks importers (Google MyMaps, booking dumps, calendar sync). Gated by
-      // the app's own 'trip_create' right + a bound user (a job can't create one).
-      this.methods.set('trips.create', (p, uid) => {
-        const actor = this.requireActor(uid, 'trip');
-        const parsed = tripCreateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid trip: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        this.capStrings(parsed.data as Record<string, unknown>, TRIP_STR_LIMITS);
-        if (!deps.canCreateTrip(actor)) throw new ForbiddenResource('no permission to create trips');
-        return deps.createTripForUser(actor, parsed.data as Record<string, unknown>);
-      });
-    }
 
     // rates.get now lives in src/nest/budget/exchange-rates.rpc.ts.
 

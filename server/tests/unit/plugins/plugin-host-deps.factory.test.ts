@@ -451,19 +451,8 @@ describe('host-deps factory — planner write + metadata deps', () => {
   // #1705: a plugin itinerary write has to reach open sessions exactly like the REST
   // route. The delete payload needs the dayId the client reducer evicts by, and both
   // directions run the same journey-skeleton reconcile the controller/MCP tool run.
-  it('trips.update: archive/cover need their own permission; service errors map to RPC codes', async () => {
-    const h = host('db:write:trips');
-    expect((await call(h, 'trips.update', { tripId: 1, input: { title: 'T' } })).ok).toBe(true);
-    checkPermission.mockImplementation((action: string) => action !== 'trip_archive');
-    expect((await call(h, 'trips.update', { tripId: 1, input: { is_archived: 1 } })).error.code).toBe('RESOURCE_FORBIDDEN');
-    checkPermission.mockImplementation((action: string) => action !== 'trip_cover_upload');
-    expect((await call(h, 'trips.update', { tripId: 1, input: { cover_image: '/x.jpg' } })).error.code).toBe('RESOURCE_FORBIDDEN');
-    checkPermission.mockReturnValue(true);
-    expect((await call(h, 'trips.update', { tripId: 1, input: { title: 'boom' } })).error.code).toBe('BAD_PARAMS');
-    expect((await call(h, 'trips.update', { tripId: 1, input: { title: 'gone' } })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'trips.update', { tripId: 1, input: { title: 'crash' } })).error.code).toBe('HOST_ERROR'); // rethrow of an unknown error
-  });
-
+  // trips.*, the cross-trip feeds and member management left this factory with the
+  // decorator migration; the cases now run in tests/unit/trips/trips.rpc.test.ts.
   it('metadata: round-trips and enforces the key/value/access limits', async () => {
     const h = host('db:meta');
     expect((await call(h, 'meta.set', { entityType: 'trip', entityId: 1, key: 'k', value: { a: 1 } })).ok).toBe(true);
@@ -541,48 +530,6 @@ describe('host-deps factory — reservations, day notes, cross-trip + addon read
   // daynotes.* left this factory with the decorator migration; the cases now run in
   // tests/unit/days/day-notes.rpc.test.ts against DayNotesRpc.
 
-  it('cross-trip reads enumerate accessible trips and reservations', async () => {
-    const h = host('db:read:trips');
-    expect((await call(h, 'trips.listMine', {})).ok).toBe(true);
-    const r = await call(h, 'reservations.listMine', {});
-    expect(r.ok).toBe(true);
-    expect(r.result).toHaveLength(1);
-  });
-
-  it('wave-13 wiring: collab reads, journal entries, atlas bucket and trip create delegate correctly', async () => {
-    // collab reads delegate to collabService and require the collab addon
-    const collab = host('db:read:collab');
-    expect((await call(collab, 'collab.listNotes', { tripId: 1 })).result).toEqual([{ id: 1, trip_id: 1, title: 'Note' }]);
-    expect((await call(collab, 'collab.listMessages', { tripId: 1, before: 9 })).result).toEqual([{ id: 3, trip_id: 1, text: 'hi', _before: 9 }]);
-    isAddonEnabled.mockReturnValueOnce(false);
-    expect((await call(collab, 'collab.listPolls', { tripId: 1 })).error.code).toBeDefined(); // addon off -> refused
-    // journal.getEntries: delegates + self-gate (journey 88 = no access)
-    const journal = host('db:read:journal');
-    expect((await call(journal, 'journal.getEntries', { journeyId: 7 })).result).toEqual([{ id: 10, journey_id: 7, author_id: 5 }]);
-    expect((await call(journal, 'journal.getEntries', { journeyId: 88 })).error.code).toBe('RESOURCE_FORBIDDEN');
-    // atlas.bucketList
-    const atlas = host('db:read:atlas');
-    expect((await call(atlas, 'atlas.bucketList', {})).result).toEqual([{ id: 5, user_id: 5, name: 'Kyoto' }]);
-    // trips.create: owner = acting user, delegates to createTrip; validation error mapped
-    const create = host('db:create:trips');
-    expect((await call(create, 'trips.create', { input: { title: 'Japan' } })).result).toMatchObject({ id: 99, user_id: 5, title: 'Japan' });
-    expect((await call(create, 'trips.create', { input: { title: 'boom' } })).error.code).toBe('BAD_PARAMS');
-  });
-
-  it('trip-scoped reads are wired to the hydrated services (days incl. assignments, reservations incl. endpoints)', async () => {
-    const h = host('db:read:trips');
-    const days = await call(h, 'trips.getDays', { tripId: 1 });
-    expect(days.ok).toBe(true);
-    // listDays returns { days: [...] }; the wiring unwraps to the bare array like getPlaces
-    expect(days.result).toEqual([{ id: 3, trip_id: 1, day_number: 1, assignments: [], notes_items: [] }]);
-    const res = await call(h, 'trips.getReservations', { tripId: 1 });
-    expect(res.ok).toBe(true);
-    expect(res.result).toEqual([{ id: 1, trip_id: 1, title: 'Flight' }]);
-    const acc = await call(h, 'trips.getAccommodations', { tripId: 1 });
-    expect(acc.ok).toBe(true);
-    expect(acc.result).toEqual([{ id: 11, trip_id: 1, place_name: 'Ryokan' }]);
-  });
-
   it('accommodations create validates refs, creates via DaysService and emits the cascade broadcasts', async () => {
     const h = host('db:write:accommodations');
     const good = await call(h, 'accommodations.create', { tripId: 1, input: { place_id: 7, start_day_id: 3, end_day_id: 4, check_in: '15:00' } });
@@ -626,30 +573,9 @@ describe('host-deps factory — reservations, day notes, cross-trip + addon read
 // transitions are asserted in tests/unit/packing/packing.rpc.test.ts, against the
 // PackingService methods the REST controller uses too, so there is one copy now.
 
-describe('host-deps factory — Wave 1 wiring (weather/categories/tags/todos/roster/bags)', () => {
-  const host = (...perms: string[]) => createRealRpcHost('w1', new Set(perms))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const call = async (h: ReturnType<typeof host>, method: string, params: Record<string, unknown>, uid: number | undefined = 5): Promise<any> =>
-    h.dispatch({ k: 'req', id: 'x', method, params }, uid)
-  beforeEach(() => { checkPermission.mockReset(); checkPermission.mockReturnValue(true) })
-  afterAll(() => closePluginDataDb('w1'))
-
-  // weather.get, categories.list and rates.get left this factory with the decorator
-  // migration; the cases now run in tests/unit/plugins/tenant-free.rpc.test.ts.
-
-  // tags.* left this factory with the decorator migration. The same cases now run in
-  // tests/unit/tags/tags.rpc.test.ts against TagsRpc.
-
-  it('trips.members returns the roster', async () => {
-    const r = await call(host('db:read:trips'), 'trips.members', { tripId: 1 }, 5)
-    expect(r.ok).toBe(true)
-    expect(Array.isArray(r.result)).toBe(true)
-  })
-
-  // todos.* left this factory with the decorator migration; the cases now run in
-  // tests/unit/todo/todo.rpc.test.ts against TodoRpc.
-
-})
+// The Wave 1 wiring suite is gone: weather, categories, rates, tags, todos, the
+// roster and the packing bags all moved onto the decorators, so there was nothing
+// left in it. Their cases live in the domain suites now.
 
 describe('host-deps factory — Wave 2 wiring (atlas/vacay/journal/collections writes)', () => {
   const host = (...perms: string[]) => createRealRpcHost('w2', new Set(perms))
@@ -725,15 +651,6 @@ describe('host-deps factory — Wave 3 wiring (files write / collab / member-add
     expect(((await call(h, 'collab.createNote', { tripId: 1, input: { title: 'x' } })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
   })
 
-  it('trips.addMember verifies the target user exists and reports owner-add as joined:false', async () => {
-    const h = host('db:write:members')
-    const r = await call(h, 'trips.addMember', { tripId: 1, userId: 6 })
-    expect(r.ok).toBe(true)
-    expect(r.result).toMatchObject({ joined: true })
-    const ownerAdd = await call(h, 'trips.addMember', { tripId: 1, userId: 5 }) // owner -> no-op
-    expect(ownerAdd.result).toMatchObject({ joined: false })
-    expect(((await call(h, 'trips.addMember', { tripId: 1, userId: 12345 })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-  })
 })
 
 describe('host-deps factory — Wave 4 wiring (notify / ai)', () => {

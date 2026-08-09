@@ -75,6 +75,16 @@ export class PluginGuards {
   }
 
   /**
+   * A permission that is NOT bound to a trip, so it cannot go through
+   * requireTripEdit. `trip_create` is the only one today: it has no trip to check
+   * against yet, which is why the owner id is passed as null.
+   */
+  canCreateAs(action: string, userId: number): boolean {
+    const user = this.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role?: string } | undefined;
+    return this.permissions.checkPermission(action, user?.role ?? 'user', null, userId, false);
+  }
+
+  /**
    * A subsystem read is refused when its addon is off, matching the app, where a
    * disabled addon means there is simply nothing to read.
    */
