@@ -465,38 +465,8 @@ describe('host-deps factory — planner write + metadata deps', () => {
     expect((await call(h, 'meta.set', { entityType: 'trip', entityId: 2, key: 'k', value: 1 })).error.code).toBe('RESOURCE_FORBIDDEN');
   });
 
-  it('costs deps: create + reads wired through the budget service and addon gate', async () => {
-    const h = host('db:read:costs', 'db:write:costs');
-    expect((await call(h, 'costs.create', { tripId: 1, input: { name: 'Hotel' } })).ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'budget:created', expect.anything());
-    expect((await call(h, 'costs.getByTrip', { tripId: 1 })).ok).toBe(true);
-    expect((await call(h, 'costs.listMine', {})).ok).toBe(true);
-  });
-
-  it('costs deps: update wired through BudgetService.update + broadcasts budget:updated', async () => {
-    const h = host('db:write:costs');
-    expect((await call(h, 'costs.update', { tripId: 1, itemId: 9, input: { name: 'Hostel' } })).ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'budget:updated', expect.anything());
-  });
-
-  it('costs deps: update of a missing item is RESOURCE_FORBIDDEN', async () => {
-    const h = host('db:write:costs');
-    expect((await call(h, 'costs.update', { tripId: 1, itemId: 404, input: { name: 'X' } })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
-  it('costs deps: delete wired through BudgetService.remove + broadcasts budget:deleted', async () => {
-    const h = host('db:write:costs');
-    const res = await call(h, 'costs.delete', { tripId: 1, itemId: 9 });
-    expect(res.ok).toBe(true);
-    expect(res.result).toMatchObject({ deleted: true });
-    expect(broadcast).toHaveBeenCalledWith(1, 'budget:deleted', { itemId: 9 });
-  });
-
-  it('costs deps: delete of a missing item is RESOURCE_FORBIDDEN', async () => {
-    const h = host('db:write:costs');
-    expect((await call(h, 'costs.delete', { tripId: 1, itemId: 404 })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
+  // costs, reservations and accommodations left this factory with the decorator
+  // migration; the cases now run in tests/unit/budget/ and tests/unit/reservations/.
   it('users.getById is scoped to people the acting user shares a trip with', async () => {
     const h = host('db:read:users');
     expect((await call(h, 'users.getById', { id: 6 }, 5)).ok).toBe(true); // 5 (owner) + 6 (member) share trip 1
@@ -515,46 +485,8 @@ describe('host-deps factory — reservations, day notes, cross-trip + addon read
   });
   afterAll(() => closePluginDataDb('w15'));
 
-  it('reservations create/update/delete run the real side-effect wiring; a missing one is refused', async () => {
-    const h = host('db:write:reservations');
-    expect((await call(h, 'reservations.create', { tripId: 1, input: { title: 'Flight' } })).ok).toBe(true);
-    // title 'Stay' drives the accommodationCreated branch of the wiring
-    expect((await call(h, 'reservations.create', { tripId: 1, input: { title: 'Stay' } })).ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'reservation:created', expect.anything(), undefined);
-    expect((await call(h, 'reservations.update', { tripId: 1, reservationId: 40, input: { title: 'New' } })).ok).toBe(true);
-    expect((await call(h, 'reservations.update', { tripId: 1, reservationId: 404, input: { title: 'X' } })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'reservations.delete', { tripId: 1, reservationId: 40 })).ok).toBe(true);
-    expect((await call(h, 'reservations.delete', { tripId: 1, reservationId: 404 })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
   // daynotes.* left this factory with the decorator migration; the cases now run in
   // tests/unit/days/day-notes.rpc.test.ts against DayNotesRpc.
-
-  it('accommodations create validates refs, creates via DaysService and emits the cascade broadcasts', async () => {
-    const h = host('db:write:accommodations');
-    const good = await call(h, 'accommodations.create', { tripId: 1, input: { place_id: 7, start_day_id: 3, end_day_id: 4, check_in: '15:00' } });
-    expect(good.ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'accommodation:created', expect.anything());
-    // the auto-created partner hotel reservation announces itself, like the REST path
-    expect(broadcast).toHaveBeenCalledWith(1, 'reservation:created', {});
-    // a place/day of another trip is refused before anything is written
-    expect((await call(h, 'accommodations.create', { tripId: 1, input: { place_id: 999, start_day_id: 3, end_day_id: 4 } })).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'accommodations.create', { tripId: 1, input: { place_id: 7, start_day_id: 88, end_day_id: 4 } })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
-  it('accommodations update/delete scope the row to the trip; delete cascades reservation + budget broadcasts', async () => {
-    const h = host('db:write:accommodations');
-    expect((await call(h, 'accommodations.update', { tripId: 1, accommodationId: 60, input: { notes: 'late checkout' } })).ok).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(1, 'accommodation:updated', expect.anything());
-    expect((await call(h, 'accommodations.update', { tripId: 1, accommodationId: 404, input: {} })).error.code).toBe('RESOURCE_FORBIDDEN');
-    const del = await call(h, 'accommodations.delete', { tripId: 1, accommodationId: 61 });
-    expect(del.ok).toBe(true);
-    expect(del.result).toMatchObject({ deleted: true });
-    expect(broadcast).toHaveBeenCalledWith(1, 'reservation:deleted', { reservationId: 40 });
-    expect(broadcast).toHaveBeenCalledWith(1, 'budget:deleted', { itemId: 9 });
-    expect(broadcast).toHaveBeenCalledWith(1, 'accommodation:deleted', { accommodationId: 61 });
-    expect((await call(h, 'accommodations.delete', { tripId: 1, accommodationId: 404 })).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
 
   it('addon reads delegate, and a disabled addon is refused', async () => {
     const h = host('db:read:journal', 'db:read:atlas', 'db:read:vacay', 'db:read:collections');

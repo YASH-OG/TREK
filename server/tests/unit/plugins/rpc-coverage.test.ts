@@ -54,13 +54,21 @@ describe('plugin RPC coverage ledger', () => {
     // Update these two numbers in every rollout PR. They make the diff state the size
     // of the move out loud, which is the number a reviewer wants to see.
     const total = KNOWN_METHODS.length + UNCONDITIONAL_METHODS.length;
-    expect(fromRegistry.size).toBe(50);
-    expect(legacy.size).toBe(total - 50);
+    expect(fromRegistry.size).toBe(61);
+    expect(legacy.size).toBe(total - 61);
   });
 
   it('RPCLEDGER-006 the migrated methods are exactly the ones this PR claims', () => {
     expect([...fromRegistry].sort()).toEqual([
+      'accommodations.create',
+      'accommodations.delete',
+      'accommodations.update',
       'categories.list',
+      'costs.create',
+      'costs.delete',
+      'costs.getByTrip',
+      'costs.listMine',
+      'costs.update',
       'daynotes.create',
       'daynotes.delete',
       'daynotes.list',
@@ -89,7 +97,10 @@ describe('plugin RPC coverage ledger', () => {
       'places.delete',
       'places.update',
       'rates.get',
+      'reservations.create',
+      'reservations.delete',
       'reservations.listMine',
+      'reservations.update',
       'tags.create',
       'tags.delete',
       'tags.list',

@@ -87,9 +87,7 @@ export interface HostDeps {
   /** Publish an event from this host's plugin to its subscribed dependents. */
   emitPluginEvent(event: string, payload: unknown): void;
   /** True when the Costs (budget) addon is enabled — gates all costs.* methods. */
-  budgetAddonEnabled(): boolean;
   /** True if the acting user may create costs on the trip (the 'budget_edit' permission). */
-  canEditCosts(tripId: number, userId: number): boolean;
   /** A trip's packing items visible to `userId` (#858 private-item filter), for `packing.list`. */
   /** A trip's files (trash excluded), for `files.list`. */
   /** One trip file's bytes as base64 (size-capped), for `files.getContent`. Throws if it's not on the trip or exceeds the cap. */
@@ -152,18 +150,15 @@ export interface HostDeps {
   /** Update a day note (scoped to the day+trip); broadcasts dayNote:updated. */
   /** Delete a day note (scoped to the day+trip); broadcasts dayNote:deleted. */
   /** All budget items of one trip, hydrated with members/payers. */
-  listCostsForTrip(tripId: number): unknown[];
   /** All budget items across every trip the acting user can access. */
-  listCostsForUser(userId: number): unknown[];
   /** Create a budget item on a trip (and broadcast); returns the created item. */
-  createCost(tripId: number, input: BudgetCreateItemRequest): unknown;
   /** Update a budget item on a trip (and broadcast); returns the updated item. */
-  updateCost(tripId: number, itemId: number, input: BudgetUpdateItemRequest): unknown;
   /** Delete a budget item from a trip (and broadcast); returns { deleted: true }. */
-  deleteCost(tripId: number, itemId: number): unknown;
   // --- Places (the 'place_edit' permission) ---
   /** Still needed by the db:meta gate, which has not moved yet. */
   canEditTrip(tripId: number, userId: number): boolean;
+  /** Also still needed by the db:meta gate. */
+  canEditReservations(tripId: number, userId: number): boolean;
   canEditPlaces(tripId: number, userId: number): boolean;
   // --- Days + itinerary (the 'day_edit' permission) ---
   canEditDays(tripId: number, userId: number): boolean;
@@ -180,19 +175,12 @@ export interface HostDeps {
   /** A trip's lodging blocks (day_accommodations) with the joined place fields. */
   // --- Accommodations write (the 'day_edit' permission, like the accommodations REST path) ---
   /** Create a lodging block (auto-creates its partner hotel reservation + broadcasts); returns it. */
-  createAccommodation(tripId: number, input: Record<string, unknown>): unknown;
   /** Update a lodging block (syncs the partner reservation); throws if it isn't on the trip. */
-  updateAccommodation(tripId: number, accommodationId: number, input: Record<string, unknown>): unknown;
   /** Delete a lodging block (cascades the partner reservation/budget row); returns { deleted: true }. */
-  deleteAccommodation(tripId: number, accommodationId: number): unknown;
   // --- Reservations (the 'reservation_edit' permission) ---
-  canEditReservations(tripId: number, userId: number): boolean;
   /** Create a reservation (accommodation/budget side effects + broadcasts, as the web app); returns it. */
-  createReservation(tripId: number, input: Record<string, unknown>, actingUserId: number): unknown;
   /** Update a reservation on a trip (same side effects); returns it, or throws if it isn't on the trip. */
-  updateReservation(tripId: number, reservationId: number, input: Record<string, unknown>, actingUserId: number): unknown;
   /** Delete a reservation from a trip (same side effects); returns { deleted: true }. */
-  deleteReservation(tripId: number, reservationId: number, actingUserId: number): unknown;
   // --- Packing (the 'packing_edit' permission; #858 privacy-scoped broadcasts) ---
   /** Create a packing item (owner = acting user); privacy-scoped packing:created broadcast; returns it. */
   /** Update a packing item; four-case public<->private broadcast; throws if not on the trip. */
@@ -427,65 +415,8 @@ export class PluginRpcHost {
       this.methods.set('journal.deleteJourney', (p, uid) => deps.deleteJournal(requireUid(uid), num(p.journeyId, 'journeyId')));
     }
 
-    if (has('db:read:costs')) {
-      // "Costs" = budget items (trip-scoped). Same membership gate as trip reads;
-      // additionally requires the Costs addon to be enabled (parity with the app,
-      // where a disabled addon means there is nothing to read).
-      this.methods.set('costs.getByTrip', (p, uid) =>
-        this.tripRead(p, uid, () => {
-          this.requireBudgetAddon();
-          return deps.listCostsForTrip(num(p.tripId, 'tripId'));
-        }),
-      );
-      // Cross-trip aggregate: every cost the acting user can access. The acting
-      // user is host-bound; a job/onLoad (no user) is refused, same as tripRead.
-      this.methods.set('costs.listMine', (p, uid) => {
-        if (uid === undefined) throw new ForbiddenResource('cost reads require an authenticated user context');
-        this.requireBudgetAddon();
-        return deps.listCostsForUser(uid);
-      });
-    }
+    // costs.* now lives in src/nest/budget/costs.rpc.ts.
 
-    if (has('db:write:costs')) {
-      // The first plugin path that MUTATES core data. Gate it exactly like a
-      // normal web-app/MCP budget write: addon enabled + trip access + the
-      // 'budget_edit' permission for the host-bound acting user.
-      this.methods.set('costs.create', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        if (uid === undefined) throw new ForbiddenResource('cost writes require an authenticated user context');
-        this.requireBudgetAddon();
-        const parsed = budgetCreateItemRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid cost: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        if (!this.deps.canAccessTrip(tripId, uid)) throw new ForbiddenResource(`no access to trip ${tripId}`);
-        if (!this.deps.canEditCosts(tripId, uid)) throw new ForbiddenResource(`no permission to edit costs on trip ${tripId}`);
-        return deps.createCost(tripId, parsed.data);
-      });
-      // Same gate as costs.create — addon + trip access + the acting user's
-      // 'budget_edit' permission — plus the item id. updateCost re-freezes the FX
-      // rate through BudgetService.update exactly like the create path.
-      this.methods.set('costs.update', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const itemId = num(p.itemId, 'itemId');
-        if (uid === undefined) throw new ForbiddenResource('cost writes require an authenticated user context');
-        this.requireBudgetAddon();
-        const parsed = budgetUpdateItemRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid cost: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        if (!this.deps.canAccessTrip(tripId, uid)) throw new ForbiddenResource(`no access to trip ${tripId}`);
-        if (!this.deps.canEditCosts(tripId, uid)) throw new ForbiddenResource(`no permission to edit costs on trip ${tripId}`);
-        return deps.updateCost(tripId, itemId, parsed.data);
-      });
-      // Deleting a cost is a budget write too: gated by db:write:costs and, per the
-      // app, the acting user's 'budget_edit' permission on the trip.
-      this.methods.set('costs.delete', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const itemId = num(p.itemId, 'itemId');
-        if (uid === undefined) throw new ForbiddenResource('cost writes require an authenticated user context');
-        this.requireBudgetAddon();
-        if (!this.deps.canAccessTrip(tripId, uid)) throw new ForbiddenResource(`no access to trip ${tripId}`);
-        if (!this.deps.canEditCosts(tripId, uid)) throw new ForbiddenResource(`no permission to edit costs on trip ${tripId}`);
-        return deps.deleteCost(tripId, itemId);
-      });
-    }
 
     // --- Core planner writes (#1429). Each mirrors costs.create: validate the
     // input against the SAME @trek/shared schema the web app uses, then gate on
@@ -504,70 +435,9 @@ export class PluginRpcHost {
 
     // daynotes.* now live in src/nest/days/day-notes.rpc.ts.
 
-    if (has('db:write:reservations')) {
-      // Bookings write. Gated exactly like the reservations REST/MCP path: trip
-      // access + the 'reservation_edit' permission for the HOST-bound acting user.
-      // The delegating deps reuse the real ReservationsService so the accommodation,
-      // budget-sync, notification and broadcast side effects match the web app 1:1.
-      this.methods.set('reservations.create', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const actor = this.requireActor(uid, 'reservation');
-        const parsed = reservationCreateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid reservation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        requireValidEndpoints((parsed.data as Record<string, unknown>).endpoints);
-        this.requireTripEdit(tripId, actor, deps.canEditReservations);
-        return deps.createReservation(tripId, parsed.data as Record<string, unknown>, actor);
-      });
-      this.methods.set('reservations.update', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const reservationId = num(p.reservationId, 'reservationId');
-        const actor = this.requireActor(uid, 'reservation');
-        const parsed = reservationUpdateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid reservation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        requireValidEndpoints((parsed.data as Record<string, unknown>).endpoints);
-        this.requireTripEdit(tripId, actor, deps.canEditReservations);
-        return deps.updateReservation(tripId, reservationId, parsed.data as Record<string, unknown>, actor);
-      });
-      this.methods.set('reservations.delete', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const reservationId = num(p.reservationId, 'reservationId');
-        const actor = this.requireActor(uid, 'reservation');
-        this.requireTripEdit(tripId, actor, deps.canEditReservations);
-        return deps.deleteReservation(tripId, reservationId, actor);
-      });
-    }
+    // reservations.* now lives in src/nest/reservations/reservations.rpc.ts.
 
-    if (has('db:write:accommodations')) {
-      // Lodging blocks (day_accommodations). Gated exactly like the accommodations
-      // REST path: trip access + the 'day_edit' permission — NOT reservation_edit;
-      // the blocks live in the day service and REST guards them the same way. The
-      // wiring reuses dayService, so the auto-created partner hotel reservation,
-      // the metadata sync on update and the cascade broadcasts match the web app.
-      this.methods.set('accommodations.create', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const actor = this.requireActor(uid, 'accommodation');
-        const parsed = accommodationCreateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid accommodation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        this.requireTripEdit(tripId, actor, deps.canEditDays);
-        return deps.createAccommodation(tripId, parsed.data as Record<string, unknown>);
-      });
-      this.methods.set('accommodations.update', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const accommodationId = num(p.accommodationId, 'accommodationId');
-        const actor = this.requireActor(uid, 'accommodation');
-        const parsed = accommodationUpdateRequestSchema.safeParse(p.input);
-        if (!parsed.success) throw new BadParams(`invalid accommodation: ${parsed.error.issues[0]?.message ?? 'bad input'}`);
-        this.requireTripEdit(tripId, actor, deps.canEditDays);
-        return deps.updateAccommodation(tripId, accommodationId, parsed.data as Record<string, unknown>);
-      });
-      this.methods.set('accommodations.delete', (p, uid) => {
-        const tripId = num(p.tripId, 'tripId');
-        const accommodationId = num(p.accommodationId, 'accommodationId');
-        const actor = this.requireActor(uid, 'accommodation');
-        this.requireTripEdit(tripId, actor, deps.canEditDays);
-        return deps.deleteAccommodation(tripId, accommodationId);
-      });
-    }
+    // accommodations.* now lives in src/nest/days/accommodations.rpc.ts.
 
     // packing.* now lives in src/nest/packing/packing.rpc.ts.
 
@@ -761,13 +631,6 @@ export class PluginRpcHost {
     // The read runs only for a bound, membership-checked user — hand it through so
     // per-user visibility filters (e.g. packing's #858 private items) can apply.
     return read(actingUserId);
-  }
-
-  /** Refuse costs.* calls when the Costs (budget) addon is disabled. */
-  private requireBudgetAddon(): void {
-    if (!this.deps.budgetAddonEnabled()) {
-      throw new ForbiddenResource('the costs addon is disabled');
-    }
   }
 
   /**

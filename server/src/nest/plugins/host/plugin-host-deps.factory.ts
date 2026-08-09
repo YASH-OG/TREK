@@ -184,16 +184,8 @@ export class PluginHostDepsFactory {
       broadcastToUser: (userId, payload) => this.realtime.broadcastToUser(userId, { type: `plugin:${id}`, ...payload }),
       audit: (entry) => appendAudit(this.db.connection, entry),
       // --- Costs (budget items) ---
-      budgetAddonEnabled: () => this.addons.isAddonEnabled(ADDON_IDS.BUDGET),
       // Same gate as a REST/MCP budget mutation: the acting user must have trip
       // access AND the 'budget_edit' permission for their global role.
-      canEditCosts: (tripId, userId) => {
-        const trip = this.db.canAccessTrip(tripId, userId);
-        if (!trip) return false;
-        const u = this.db.prepare('SELECT role FROM users WHERE id = ?').get(userId) as { role?: string } | undefined;
-        if (!u) return false;
-        return this.permissions.checkPermission('budget_edit', u.role ?? 'user', trip.user_id, userId, trip.user_id !== userId);
-      },
       // --- Read scopes (packing/files). Membership is checked by the host (tripRead);
       // these just delegate to the same services the REST paths use. ---
       // A file's bytes as base64, size-capped BEFORE the read so a 500MB video can't
@@ -314,38 +306,16 @@ export class PluginHostDepsFactory {
         const r = this.db.prepare('DELETE FROM plugin_scheduled_tasks WHERE plugin_id = ? AND name = ?').run(id, name);
         return { cancelled: r.changes > 0 };
       },
-      listCostsForTrip: (tripId) => this.budget.listBudgetItems(tripId),
       // Cross-trip: every accessible trip's budget items (membership predicate is
       // baked into listTrips). Reuses the hydrated list so members/payers come too.
-      listCostsForUser: (userId) => {
-        const trips = this.trips.list(userId, null) as Array<{ id: number }>;
-        return trips.flatMap((t) => this.budget.listBudgetItems(t.id));
-      },
       // Reuses BudgetService.create (frozen FX + members/payers), then broadcasts
       // the same 'budget:created' event the controller emits so the web app updates
       // live. No X-Socket-Id — a plugin has no originating socket.
-      createCost: async (tripId, input) => {
-        const item = await this.budget.create(String(tripId), input);
-        this.realtime.broadcast(tripId, 'budget:created', { item });
-        return item;
-      },
       // Reuses BudgetService.update (re-frozen FX on a currency change), then
       // broadcasts the same 'budget:updated' event the REST controller emits. A
       // missing item is a clean RESOURCE_FORBIDDEN (parity with updatePlace).
-      updateCost: async (tripId, itemId, input) => {
-        const item = await this.budget.update(String(itemId), String(tripId), input);
-        if (item == null) throw new ForbiddenResource(`no cost ${itemId} on trip ${tripId}`);
-        this.realtime.broadcast(tripId, 'budget:updated', { item });
-        return item;
-      },
       // Reuses BudgetService.remove, then broadcasts 'budget:deleted' with the
       // numeric id — same payload the REST controller sends.
-      deleteCost: (tripId, itemId) => {
-        const deleted = this.budget.remove(String(itemId), String(tripId));
-        if (!deleted) throw new ForbiddenResource(`no cost ${itemId} on trip ${tripId}`);
-        this.realtime.broadcast(tripId, 'budget:deleted', { itemId });
-        return { deleted: true };
-      },
       // --- Places (place_edit). Delegate to the same PlacesService the REST/MCP paths
       // use, then broadcast the same events so open web sessions update live, and run
       // the journey hooks places.controller runs on the same three writes: a journey
@@ -354,6 +324,7 @@ export class PluginHostDepsFactory {
       // somebody reloads it. ---
       // Consumed by the db:meta gate; the trip writes themselves have moved.
       canEditTrip: (tripId, userId) => this.canEditTripAs('trip_edit', tripId, userId),
+      canEditReservations: (tripId, userId) => this.canEditTripAs('reservation_edit', tripId, userId),
       canEditPlaces: (tripId, userId) => this.canEditTripAs('place_edit', tripId, userId),
       // --- Days (day_edit). getDay scopes the row to the trip before any write. ---
       canEditDays: (tripId, userId) => this.canEditTripAs('day_edit', tripId, userId),
@@ -373,41 +344,6 @@ export class PluginHostDepsFactory {
       // --- Accommodations (lodging blocks, day_edit). Delegates to DaysService so the
       // partner hotel reservation, the metadata sync and the delete cascade behave
       // exactly like the accommodations REST controller, cascade broadcasts included. ---
-      createAccommodation: (tripId, input) => {
-        const i = input as { place_id: number | string; start_day_id: number | string; end_day_id: number | string; check_in?: string | null; check_in_end?: string | null; check_out?: string | null; confirmation?: string | null; notes?: string | null };
-        const placeId = Math.trunc(Number(i.place_id));
-        const startDayId = Math.trunc(Number(i.start_day_id));
-        const endDayId = Math.trunc(Number(i.end_day_id));
-        if (!placeId || !startDayId || !endDayId) throw new BadParams('place_id, start_day_id, and end_day_id are required');
-        const errors = this.days.validateAccommodationRefs(tripId, placeId, startDayId, endDayId);
-        if (errors.length > 0) throw new ForbiddenResource(errors[0].message);
-        const accommodation = this.days.createAccommodation(tripId, {
-          place_id: placeId, start_day_id: startDayId, end_day_id: endDayId,
-          check_in: i.check_in ?? undefined, check_in_end: i.check_in_end ?? undefined,
-          check_out: i.check_out ?? undefined, confirmation: i.confirmation ?? undefined, notes: i.notes ?? undefined,
-        });
-        this.realtime.broadcast(tripId, 'accommodation:created', { accommodation });
-        this.realtime.broadcast(tripId, 'reservation:created', {});
-        return accommodation;
-      },
-      updateAccommodation: (tripId, accommodationId, input) => {
-        const existing = this.days.getAccommodation(accommodationId, tripId);
-        if (!existing) throw new ForbiddenResource(`no accommodation ${accommodationId} on trip ${tripId}`);
-        const i = input as { place_id?: number; start_day_id?: number; end_day_id?: number; check_in?: string; check_in_end?: string; check_out?: string; confirmation?: string; notes?: string };
-        const errors = this.days.validateAccommodationRefs(tripId, i.place_id, i.start_day_id, i.end_day_id);
-        if (errors.length > 0) throw new ForbiddenResource(errors[0].message);
-        const accommodation = this.days.updateAccommodation(accommodationId, existing, i);
-        this.realtime.broadcast(tripId, 'accommodation:updated', { accommodation });
-        return accommodation;
-      },
-      deleteAccommodation: (tripId, accommodationId) => {
-        if (!this.days.getAccommodation(accommodationId, tripId)) throw new ForbiddenResource(`no accommodation ${accommodationId} on trip ${tripId}`);
-        const { linkedReservationId, deletedBudgetItemId } = this.days.deleteAccommodation(accommodationId);
-        if (linkedReservationId) this.realtime.broadcast(tripId, 'reservation:deleted', { reservationId: linkedReservationId });
-        if (deletedBudgetItemId) this.realtime.broadcast(tripId, 'budget:deleted', { itemId: deletedBudgetItemId });
-        this.realtime.broadcast(tripId, 'accommodation:deleted', { accommodationId });
-        return { deleted: true };
-      },
       // --- User-scoped addon reads (the acting user's own data across all trips). Each
       // reuses the same service the addon's REST/MCP path uses; the addon-enabled gate
       // mirrors the app (a disabled addon has nothing to read). ---
@@ -508,37 +444,6 @@ export class PluginHostDepsFactory {
       // --- Reservations (bookings, reservation_edit). Delegates to ReservationsService
       // so the accommodation/budget-sync/notification/broadcast side effects match the
       // web app EXACTLY. socketId is undefined — a plugin has no originating socket. ---
-      canEditReservations: (tripId, userId) => this.canEditTripAs('reservation_edit', tripId, userId),
-      createReservation: (tripId, input, actingUserId) => {
-        const { reservation, accommodationCreated } = this.reservations.create(String(tripId), input as never);
-        if (accommodationCreated) this.realtime.broadcast(tripId, 'accommodation:created', {}, undefined);
-        const i = input as { title?: string; type?: string; create_budget_entry?: unknown };
-        this.reservations.syncBudgetOnCreate(String(tripId), reservation.id, i.title ?? '', i.type, i.create_budget_entry as never, undefined);
-        this.realtime.broadcast(tripId, 'reservation:created', { reservation }, undefined);
-        this.notifyBooking(actingUserId, tripId, i.title ?? '', i.type ?? '');
-        return reservation;
-      },
-      updateReservation: (tripId, reservationId, input, actingUserId) => {
-        const current = this.reservations.getReservation(String(reservationId), String(tripId));
-        if (!current) throw new ForbiddenResource(`no reservation ${reservationId} on trip ${tripId}`);
-        const { reservation, accommodationChanged } = this.reservations.update(String(reservationId), String(tripId), input as never, current as never);
-        if (accommodationChanged) this.realtime.broadcast(tripId, 'accommodation:updated', {}, undefined);
-        const cur = current as { title: string; type?: string };
-        const i = input as { title?: string; type?: string; create_budget_entry?: unknown };
-        this.reservations.syncBudgetOnUpdate(String(tripId), String(reservationId), i.title ?? '', i.type, cur.title, cur.type, i.create_budget_entry as never, undefined);
-        this.realtime.broadcast(tripId, 'reservation:updated', { reservation }, undefined);
-        this.notifyBooking(actingUserId, tripId, i.title || cur.title, i.type || cur.type || '');
-        return reservation;
-      },
-      deleteReservation: (tripId, reservationId, actingUserId) => {
-        const { deleted, accommodationDeleted, deletedBudgetItemId } = this.reservations.remove(String(reservationId), String(tripId));
-        if (!deleted) throw new ForbiddenResource(`no reservation ${reservationId} on trip ${tripId}`);
-        if (accommodationDeleted) this.realtime.broadcast(tripId, 'accommodation:deleted', { accommodationId: deleted.accommodation_id }, undefined);
-        if (deletedBudgetItemId) this.realtime.broadcast(tripId, 'budget:deleted', { itemId: deletedBudgetItemId }, undefined);
-        this.realtime.broadcast(tripId, 'reservation:deleted', { reservationId: Number(reservationId) }, undefined);
-        this.notifyBooking(actingUserId, tripId, deleted.title, deleted.type || '');
-        return { deleted: true };
-      },
       // --- Plugin metadata (db:meta). A per-plugin namespaced key/value store keyed
       // to a core entity; the plugin only ever sees rows tagged with its own id. ---
       metaEntityTrip: (entityType, entityId) => {

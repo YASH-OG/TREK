@@ -71,3 +71,13 @@ export function listMembers(tripId: string | number, tripOwnerId: number) {
 export function getTripSummary(tripId: number, viewerUserId?: number) {
   return trips.getTripSummary(tripId, viewerUserId);
 }
+
+/**
+ * Every trip the user can access. Used by CostsRpc for the cross-trip cost feed:
+ * BudgetModule cannot import TripsModule, because TripsModule already imports
+ * BudgetModule, and injecting it would need a forwardRef'd cycle. Same reason
+ * budget.mcp.ts reaches for this file.
+ */
+export function listTripsForUser(userId: number) {
+  return trips.list(userId, null) as Array<{ id: number }>;
+}
