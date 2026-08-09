@@ -19,6 +19,7 @@ import {
   type TripCreateGuestRequest, type TripRenameGuestRequest, type AssignmentReorderRequest,
   type PackingReorderRequest, type PackingCreateBagRequest, type TodoReorderRequest,
   type TripCreateRequest, type TripUpdateRequest, type TripCopyRequest,
+  type TripAssistantRequest, type TripAssistantResponse, type TripAssistantSession,
   type DayCreateRequest, type DayUpdateRequest, type DayReorderRequest,
   type PlaceCreateRequest, type PlaceUpdateRequest,
   type ReservationCreateRequest, type ReservationUpdateRequest,
@@ -381,6 +382,11 @@ export const tripsApi = {
   deleteGuest: (id: number | string, userId: number) => apiClient.delete(`/trips/${id}/guests/${userId}`).then(r => r.data),
   copy: (id: number | string, data?: TripCopyRequest) => apiClient.post(`/trips/${id}/copy`, data || {}).then(r => r.data),
   bundle: (id: number | string) => apiClient.get(`/trips/${id}/bundle`).then(r => r.data),
+}
+
+export const assistantApi = {
+  getSession: (sessionId: string): Promise<TripAssistantSession> => apiClient.get(`/ai/trip-assistant/${encodeURIComponent(sessionId)}`).then(r => r.data),
+  sendTripMessage: (data: TripAssistantRequest): Promise<TripAssistantResponse> => apiClient.post('/ai/trip-assistant/messages', data).then(r => r.data),
 }
 
 export const daysApi = {

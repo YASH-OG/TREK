@@ -708,25 +708,196 @@
   .trek-dash .page-sidebar .tool { flex: none; width: auto; }
 }
 
-/* Floating action button — Neuer Trip */
-.trek-dash .fab-new-trip {
-  position: fixed; right: 28px; bottom: 28px; z-index: 150;
-  display: inline-flex; align-items: center; gap: 9px;
-  height: 56px; padding: 0 24px; border: none; border-radius: 999px;
-  cursor: pointer; background: #111827; color: #fff;
-  font-size: 15px; font-weight: 600; font-family: inherit;
-  box-shadow: 0 6px 16px oklch(0 0 0 / .22), 0 12px 30px oklch(0 0 0 / .18);
-  transition: transform .28s cubic-bezier(0.23,1,0.32,1), box-shadow .28s cubic-bezier(0.23,1,0.32,1);
+/* Trip assistant launcher + panel */
+.trek-dash .trip-assistant-launcher {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 180;
+  width: 62px;
+  height: 62px;
+  border: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, oklch(0.22 0.03 260), oklch(0.32 0.08 296));
+  box-shadow: 0 8px 24px oklch(0 0 0 / .26), 0 16px 44px oklch(0 0 0 / .2);
+  transition: transform .24s cubic-bezier(0.23,1,0.32,1), box-shadow .24s cubic-bezier(0.23,1,0.32,1);
 }
-.dark .trek-dash .fab-new-trip { background: #fff; color: #111827; }
-.trek-dash .fab-new-trip:hover {
+.dark .trek-dash .trip-assistant-launcher {
+  color: #111827;
+  background: linear-gradient(135deg, #f8fafc, #dbeafe);
+}
+.trek-dash .trip-assistant-launcher:hover {
   transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 10px 24px oklch(0 0 0 / .3), 0 18px 44px oklch(0 0 0 / .22);
+  box-shadow: 0 12px 28px oklch(0 0 0 / .32), 0 22px 52px oklch(0 0 0 / .22);
 }
-.trek-dash .fab-new-trip:active { transform: translateY(-1px) scale(.99); }
-.trek-dash .fab-new-trip svg { flex-shrink: 0; }
+.trek-dash .trip-assistant-launcher:active { transform: translateY(-1px) scale(.99); }
+
+.trek-dash .trip-assistant-panel {
+  position: fixed;
+  right: 28px;
+  bottom: 106px;
+  z-index: 179;
+  width: min(400px, calc(100vw - 32px));
+  max-height: min(72vh, 680px);
+  display: grid;
+  grid-template-rows: auto auto 1fr auto auto auto;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 28px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+.dark .trek-dash .trip-assistant-panel { background: linear-gradient(135deg, oklch(0.24 0 0 / .88), oklch(0.2 0 0 / .86)); }
+.trek-dash .trip-assistant-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 12px;
+}
+.trek-dash .trip-assistant-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.trek-dash .trip-assistant-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, oklch(0.36 0.1 292), oklch(0.5 0.11 264));
+  flex: none;
+}
+.dark .trek-dash .trip-assistant-avatar { color: #111827; background: linear-gradient(135deg, #fff, #c7d2fe); }
+.trek-dash .trip-assistant-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.trek-dash .trip-assistant-subtitle { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
+.trek-dash .trip-assistant-actions { display: flex; gap: 8px; flex: none; }
+.trek-dash .trip-assistant-icon-btn,
+.trek-dash .trip-assistant-send {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--sh-xs);
+}
+.trek-dash .trip-assistant-send {
+  background: var(--accent-ink);
+  color: var(--bg);
+  border-color: transparent;
+}
+.trek-dash .trip-assistant-draft {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.trek-dash .trip-assistant-draft span {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.trek-dash .trip-assistant-messages {
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+  min-height: 220px;
+}
+.trek-dash .trip-assistant-bubble {
+  max-width: 90%;
+  padding: 11px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  box-shadow: var(--sh-xs);
+}
+.trek-dash .trip-assistant-bubble.user {
+  align-self: flex-end;
+  background: var(--accent-ink);
+  color: var(--bg);
+  border-bottom-right-radius: 6px;
+}
+.trek-dash .trip-assistant-bubble.assistant {
+  align-self: flex-start;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-bottom-left-radius: 6px;
+}
+.trek-dash .trip-assistant-error {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in oklch, var(--warn) 14%, white);
+  color: oklch(0.48 0.14 40);
+  border: 1px solid color-mix(in oklch, var(--warn) 28%, white);
+  font-size: 12px;
+}
+.dark .trek-dash .trip-assistant-error {
+  background: oklch(0.35 0.09 40 / .45);
+  color: oklch(0.92 0.08 80);
+  border-color: oklch(0.7 0.11 75 / .35);
+}
+.trek-dash .trip-assistant-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.trek-dash .trip-assistant-suggestions button {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.trek-dash .trip-assistant-composer {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: end;
+}
+.trek-dash .trip-assistant-composer textarea {
+  width: 100%;
+  resize: none;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 10px 12px;
+  font: inherit;
+  min-height: 58px;
+  box-shadow: var(--sh-xs);
+}
+.trek-dash .trip-assistant-composer textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--sh-xs);
+}
 
 @media (max-width: 768px) {
-  /* The bottom tab bar's centre "+" replaces the floating FAB on mobile */
-  .trek-dash .fab-new-trip { display: none; }
+  .trek-dash .trip-assistant-launcher {
+    right: 18px;
+    bottom: 18px;
+  }
+  .trek-dash .trip-assistant-panel {
+    right: 16px;
+    left: 16px;
+    bottom: 88px;
+    width: auto;
+    max-height: 70vh;
+  }
 }

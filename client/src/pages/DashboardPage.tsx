@@ -23,6 +23,7 @@ import CollectionsWidget from '../components/Dashboard/CollectionsWidget'
 import PluginWidgets from '../components/Plugins/PluginWidgets'
 import PluginFrame from '../components/Plugins/PluginFrame'
 import { TripCardBadges, useTripCardBadges } from '../components/Plugins/TripCardBadges'
+import TripAssistantLauncher from '../components/Assistant/TripAssistantLauncher'
 import type { TripCardBadge } from '../api/client'
 import { usePluginStore } from '../store/pluginStore'
 import { formatTime, splitReservationDateTime } from '../utils/formatters'
@@ -115,6 +116,7 @@ export default function DashboardPage(): React.ReactElement {
     tripFilter, setTripFilter, viewMode, toggleViewMode,
     showForm, setShowForm, editingTrip, setEditingTrip,
     deleteTrip, setDeleteTrip, copyTrip, setCopyTrip, setTrips,
+    registerTrip,
     handleCreate, handleUpdate, confirmDelete, handleArchive, handleUnarchive, confirmCopy,
     allSubOpen, setAllSubOpen,
   } = useDashboard()
@@ -255,15 +257,7 @@ export default function DashboardPage(): React.ReactElement {
         </main>
       </div>
 
-      <button
-        className="fab-new-trip"
-        onClick={() => { setEditingTrip(null); setShowForm(true) }}
-        aria-label={t('dashboard.newTrip')}
-        title={t('dashboard.newTrip')}
-      >
-        <Plus size={22} strokeWidth={2.4} />
-        <span className="fab-label">{t('dashboard.newTrip')}</span>
-      </button>
+      <TripAssistantLauncher onTripCreated={registerTrip} />
 
       {showForm && (
         <TripFormModal

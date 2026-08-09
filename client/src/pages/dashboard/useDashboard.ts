@@ -121,6 +121,10 @@ export function useDashboard() {
     }
   }
 
+  const registerTrip = (trip: DashboardTrip) => {
+    setTrips(prev => sortTrips([trip, ...prev.filter(t => t.id !== trip.id)]))
+  }
+
   const handleUpdate = async (tripData: TripCreateRequest) => {
     if (!editingTrip) return
     try {
@@ -193,6 +197,7 @@ export function useDashboard() {
     tripFilter, setTripFilter, viewMode, toggleViewMode,
     showForm, setShowForm, editingTrip, setEditingTrip,
     deleteTrip, setDeleteTrip, copyTrip, setCopyTrip, setTrips,
+    registerTrip,
     allSubOpen, setAllSubOpen,
     // actions
     handleCreate, handleUpdate, confirmDelete, handleArchive, handleUnarchive, confirmCopy,

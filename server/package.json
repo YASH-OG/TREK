@@ -23,6 +23,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
     "@nestjs/common": "^11.1.24",
     "@nestjs/core": "^11.1.24",
     "@nestjs/platform-express": "^11.1.24",
@@ -45,6 +47,7 @@
     "nodemailer": "^9.0.1",
     "otplib": "^12.0.1",
     "pdf-parse": "^2.4.5",
+    "postgres": "^3.4.7",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
