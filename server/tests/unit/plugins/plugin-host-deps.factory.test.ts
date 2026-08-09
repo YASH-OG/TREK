@@ -474,32 +474,7 @@ describe('host-deps factory — planner write + metadata deps', () => {
   });
 });
 
-describe('host-deps factory — reservations, day notes, cross-trip + addon reads (Waves 1-5)', () => {
-  const host = (...perms: string[]) => createRealRpcHost('w15', new Set(perms));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const call = async (h: ReturnType<typeof host>, method: string, params: Record<string, unknown>, uid: number | undefined = 5): Promise<any> =>
-    h.dispatch({ k: 'req', id: 'x', method, params }, uid);
-  beforeEach(() => {
-    checkPermission.mockReset(); checkPermission.mockReturnValue(true);
-    isAddonEnabled.mockReset(); isAddonEnabled.mockReturnValue(true);
-  });
-  afterAll(() => closePluginDataDb('w15'));
-
-  // daynotes.* left this factory with the decorator migration; the cases now run in
-  // tests/unit/days/day-notes.rpc.test.ts against DayNotesRpc.
-
-  it('addon reads delegate, and a disabled addon is refused', async () => {
-    const h = host('db:read:journal', 'db:read:atlas', 'db:read:vacay', 'db:read:collections');
-    expect((await call(h, 'journal.listMine', {})).ok).toBe(true);
-    expect((await call(h, 'atlas.visited', {})).ok).toBe(true);
-    expect((await call(h, 'vacay.mine', {})).ok).toBe(true);
-    expect((await call(h, 'collections.listMine', {})).ok).toBe(true);
-    expect((await call(h, 'collections.get', { id: 1 })).ok).toBe(true);
-    isAddonEnabled.mockReturnValue(false);
-    expect((await call(h, 'journal.listMine', {})).error.code).toBe('RESOURCE_FORBIDDEN');
-    expect((await call(h, 'collections.listMine', {})).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-});
+// The 'reservations, day notes, cross-trip + addon reads' suite is gone: every case in it moved onto the decorators.
 
 // The packing write deps left this factory with the decorator migration. The #858
 // transitions are asserted in tests/unit/packing/packing.rpc.test.ts, against the
@@ -509,81 +484,9 @@ describe('host-deps factory — reservations, day notes, cross-trip + addon read
 // roster and the packing bags all moved onto the decorators, so there was nothing
 // left in it. Their cases live in the domain suites now.
 
-describe('host-deps factory — Wave 2 wiring (atlas/vacay/journal/collections writes)', () => {
-  const host = (...perms: string[]) => createRealRpcHost('w2', new Set(perms))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const call = async (h: ReturnType<typeof host>, method: string, params: Record<string, unknown>, uid: number | undefined = 5): Promise<any> =>
-    h.dispatch({ k: 'req', id: 'x', method, params }, uid)
-  beforeEach(() => { checkPermission.mockReset(); checkPermission.mockReturnValue(true); isAddonEnabled.mockReset(); isAddonEnabled.mockReturnValue(true) })
-  afterAll(() => closePluginDataDb('w2'))
+// The 'Wave 2 wiring' suite is gone: every case in it moved onto the decorators.
 
-  it('atlas writes delegate uid-scoped; disabled addon refused; missing bucket item forbidden', async () => {
-    const h = host('db:write:atlas')
-    expect((await call(h, 'atlas.markCountry', { code: 'JP' })).ok).toBe(true)
-    expect((await call(h, 'atlas.markRegion', { regionCode: 'JP-13', countryCode: 'JP' })).ok).toBe(true)
-    expect((await call(h, 'atlas.unmarkRegion', { regionCode: 'JP-13' })).ok).toBe(true)
-    expect((await call(h, 'atlas.createBucketItem', { input: { name: 'Kyoto' } })).ok).toBe(true)
-    expect((await call(h, 'atlas.deleteBucketItem', { itemId: 110 })).ok).toBe(true)
-    expect(((await call(h, 'atlas.deleteBucketItem', { itemId: 404 })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-    isAddonEnabled.mockReturnValue(false)
-    expect(((await call(h, 'atlas.markCountry', { code: 'JP' })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-  })
-
-  it('vacay writes resolve the plan host-side from the acting user', async () => {
-    const h = host('db:write:vacay')
-    const r = await call(h, 'vacay.toggleEntry', { date: '2026-08-01' })
-    expect(r.ok).toBe(true)
-    expect(r.result).toMatchObject({ uid: 5, planId: 77 }) // uid + the user's own active plan, never a plugin-named one
-    expect((await call(h, 'vacay.toggleCompanyHoliday', { date: '2026-12-24' })).ok).toBe(true)
-  })
-
-  it('journal writes map an uneditable journey/entry to RESOURCE_FORBIDDEN', async () => {
-    const h = host('db:write:journal')
-    expect((await call(h, 'journal.createEntry', { journeyId: 1, input: { entry_date: '2026-08-01' } })).ok).toBe(true)
-    expect(((await call(h, 'journal.createEntry', { journeyId: 99, input: { entry_date: '2026-08-01' } })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-    expect((await call(h, 'journal.updateEntry', { entryId: 120, input: { story: 'x' } })).ok).toBe(true)
-    expect(((await call(h, 'journal.updateEntry', { entryId: 99, input: {} })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-    expect((await call(h, 'journal.deleteEntry', { entryId: 120 })).ok).toBe(true)
-    expect(((await call(h, 'journal.deleteEntry', { entryId: 99 })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-  })
-
-  it('collections writes map the service 403/404 to RESOURCE_FORBIDDEN', async () => {
-    const h = host('db:write:collections')
-    expect((await call(h, 'collections.create', { input: { name: 'Tokyo eats' } })).ok).toBe(true)
-    expect((await call(h, 'collections.update', { id: 1, input: { name: 'Renamed' } })).ok).toBe(true)
-    expect(((await call(h, 'collections.update', { id: 99, input: { name: 'x' } })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN') // viewer-only 403
-    expect(((await call(h, 'collections.update', { id: 404, input: { name: 'x' } })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN') // invisible 404
-    expect((await call(h, 'collections.savePlace', { input: { collection_id: 1, name: 'Ramen' } })).ok).toBe(true)
-    expect((await call(h, 'collections.copyToTrip', { input: { trip_id: 1, place_ids: [101] } })).ok).toBe(true)
-    expect((await call(h, 'collections.deletePlace', { placeId: 101 })).ok).toBe(true)
-    expect(((await call(h, 'collections.deletePlace', { placeId: 404 })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-  })
-})
-
-describe('host-deps factory — Wave 3 wiring (files write / collab / member-add)', () => {
-  const host = (...perms: string[]) => createRealRpcHost('w3', new Set(perms))
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const call = async (h: ReturnType<typeof host>, method: string, params: Record<string, unknown>, uid: number | undefined = 5): Promise<any> =>
-    h.dispatch({ k: 'req', id: 'x', method, params }, uid)
-  beforeEach(() => { checkPermission.mockReset(); checkPermission.mockReturnValue(true); isAddonEnabled.mockReset(); isAddonEnabled.mockReturnValue(true); broadcast.mockClear() })
-  afterAll(() => closePluginDataDb('w3'))
-
-  // The files write deps left this factory with the decorator migration; the cases
-  // now run in tests/unit/files/files.rpc.test.ts against FilesRpc.
-  it('collab writes delegate + broadcast; service errors map to BAD_PARAMS; addon gated', async () => {
-    const h = host('db:write:collab')
-    expect((await call(h, 'collab.createNote', { tripId: 1, input: { title: 'Ideas' } })).ok).toBe(true)
-    expect(broadcast.mock.calls.some((c) => c[1] === 'collab:note:created')).toBe(true)
-    expect((await call(h, 'collab.createPoll', { tripId: 1, input: { question: 'Where?', options: ['A', 'B'] } })).ok).toBe(true)
-    expect((await call(h, 'collab.votePoll', { tripId: 1, pollId: 141, optionIndex: 0 })).ok).toBe(true)
-    expect(((await call(h, 'collab.votePoll', { tripId: 1, pollId: 141, optionIndex: 9 })) as { error: { code: string } }).error.code).toBe('BAD_PARAMS')
-    expect((await call(h, 'collab.createMessage', { tripId: 1, text: 'hi' })).ok).toBe(true)
-    expect(((await call(h, 'collab.createMessage', { tripId: 1, text: 'toolong' })) as { error: { code: string } }).error.code).toBe('BAD_PARAMS')
-    isAddonEnabled.mockReturnValue(false)
-    expect(((await call(h, 'collab.createNote', { tripId: 1, input: { title: 'x' } })) as { error: { code: string } }).error.code).toBe('RESOURCE_FORBIDDEN')
-  })
-
-})
+// The 'Wave 3 wiring' suite is gone: every case in it moved onto the decorators.
 
 describe('host-deps factory — Wave 4 wiring (notify / ai)', () => {
   const host = (...perms: string[]) => createRealRpcHost('w4', new Set(perms))

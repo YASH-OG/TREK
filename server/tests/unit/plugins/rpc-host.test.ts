@@ -118,83 +118,15 @@ describe('PluginRpcHost — capability enforcement', () => {
   });
 
   // The costs, reservation and accommodation cases moved to their domain suites.
-  it('user-scoped addon reads (journal/atlas/vacay) need a bound user; a job is refused', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:read:journal', 'db:read:atlas', 'db:read:vacay']), deps);
-    expect(ok(await host.dispatch(req('journal.listMine'), 42))).toBe(true);
-    expect(ok(await host.dispatch(req('atlas.visited'), 42))).toBe(true);
-    expect(ok(await host.dispatch(req('vacay.mine'), 42))).toBe(true);
-    for (const m of ['journal.listMine', 'atlas.visited', 'vacay.mine']) {
-      expect((await host.dispatch(req(m), undefined)).ok).toBe(false);
-    }
-  });
-
+  // The addon-gated domains moved to their own suites; addon-gates.rpc.test.ts
+  // covers every gate in one table.
   // The daynotes cases moved to tests/unit/days/day-notes.rpc.test.ts.
-
-  it('collections reads are user-scoped and need db:read:collections + a bound user', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:read:collections']), deps);
-    expect(ok(await host.dispatch(req('collections.listMine'), 42))).toBe(true);
-    const one = await host.dispatch(req('collections.get', { id: 1 }), 42);
-    expect(ok(one)).toBe(true);
-    expect(deps.getCollectionForUser).toHaveBeenCalledWith(42, 1);
-    expect((await host.dispatch(req('collections.listMine'), undefined)).ok).toBe(false);
-  });
 
   // weather.get, categories.list and rates.get moved to tests/unit/plugins/tenant-free.rpc.test.ts.
 
   // The tags cases moved to tests/unit/tags/tags.rpc.test.ts with the handlers.
 
-  it('atlas writes are uid-bound (code-validated, userless refused)', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:atlas']), deps);
-    expect(ok(await host.dispatch(req('atlas.markCountry', { code: 'jp' }), 42))).toBe(true);
-    expect(deps.markCountryVisited).toHaveBeenCalledWith(42, 'JP'); // uid host-bound, code normalized
-    expect(ok(await host.dispatch(req('atlas.markRegion', { regionCode: 'JP-13', countryCode: 'JP' }), 42))).toBe(true);
-    expect(ok(await host.dispatch(req('atlas.createBucketItem', { input: { name: 'Kyoto' } }), 42))).toBe(true);
-    expect((await host.dispatch(req('atlas.markCountry', { code: 'JP' }), undefined)).ok).toBe(false); // no user
-    expect((await host.dispatch(req('atlas.markCountry', { code: 'not-a-code-way-too-long' }), 42)).ok).toBe(false);
-    expect((await host.dispatch(req('atlas.createBucketItem', { input: { name: '' } }), 42)).ok).toBe(false);
-  });
-
-  it('vacay writes validate the date and are uid-bound', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:vacay']), deps);
-    expect(ok(await host.dispatch(req('vacay.toggleEntry', { date: '2026-08-01' }), 42))).toBe(true);
-    expect(deps.vacayToggleEntry).toHaveBeenCalledWith(42, '2026-08-01');
-    expect(ok(await host.dispatch(req('vacay.toggleCompanyHoliday', { date: '2026-12-24', note: 'Xmas' }), 42))).toBe(true);
-    expect((await host.dispatch(req('vacay.toggleEntry', { date: 'tomorrow' }), 42)).ok).toBe(false);
-    expect((await host.dispatch(req('vacay.toggleEntry', { date: '2026-08-01' }), undefined)).ok).toBe(false);
-  });
-
-  it('journal writes require entry_date on create and a bound user', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:journal']), deps);
-    expect(ok(await host.dispatch(req('journal.createEntry', { journeyId: 3, input: { entry_date: '2026-08-01', story: 'x' } }), 42))).toBe(true);
-    expect(deps.createJournalEntry).toHaveBeenCalledWith(42, 3, expect.objectContaining({ entry_date: '2026-08-01' }));
-    expect((await host.dispatch(req('journal.createEntry', { journeyId: 3, input: { story: 'no date' } }), 42)).ok).toBe(false);
-    expect((await host.dispatch(req('journal.updateEntry', { entryId: 120, input: {} }), undefined)).ok).toBe(false);
-    expect(ok(await host.dispatch(req('journal.deleteEntry', { entryId: 120 }), 42))).toBe(true);
-  });
-
-  it('collections writes are schema-validated and uid-bound', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:collections']), deps);
-    expect(ok(await host.dispatch(req('collections.create', { input: { name: 'Tokyo eats' } }), 42))).toBe(true);
-    expect(deps.createCollectionForUser).toHaveBeenCalledWith(42, expect.objectContaining({ name: 'Tokyo eats' }));
-    expect(ok(await host.dispatch(req('collections.deletePlace', { placeId: 7 }), 42))).toBe(true);
-    expect((await host.dispatch(req('collections.create', { input: { name: 'x' } }), undefined)).ok).toBe(false);
-    const noGrant = new PluginRpcHost('p', new Set(['db:read:collections']), deps);
-    expect((await noGrant.dispatch(req('collections.create', { input: { name: 'x' } }), 42)).ok).toBe(false);
-  });
-
   // The files cases moved to tests/unit/files/files.rpc.test.ts with the handlers.
-  it('collab writes are gated by collab_edit and validate their inputs', async () => {
-    const host = new PluginRpcHost('p', new Set(['db:write:collab']), deps);
-    expect(ok(await host.dispatch(req('collab.createNote', { tripId: 1, input: { title: 'Ideas' } }), 42))).toBe(true);
-    expect((await host.dispatch(req('collab.createNote', { tripId: 1, input: { title: '' } }), 42)).ok).toBe(false);
-    expect(ok(await host.dispatch(req('collab.createPoll', { tripId: 1, input: { question: 'Where?', options: ['A', 'B'] } }), 42))).toBe(true);
-    expect((await host.dispatch(req('collab.createPoll', { tripId: 1, input: { question: 'Where?', options: ['A'] } }), 42)).ok).toBe(false);
-    expect(ok(await host.dispatch(req('collab.votePoll', { tripId: 1, pollId: 141, optionIndex: 0 }), 42))).toBe(true);
-    expect(ok(await host.dispatch(req('collab.createMessage', { tripId: 1, text: 'hi' }), 42))).toBe(true);
-    expect((await host.dispatch(req('collab.createMessage', { tripId: 1, text: '' }), 42)).ok).toBe(false);
-    expect(((await host.dispatch(req('collab.createNote', { tripId: 2, input: { title: 'x' } }), 42)) as RpcError).error.code).toBe('RESOURCE_FORBIDDEN');
-  });
-
   it('notify.send forces the recipient to the acting user or a member trip; admin scope refused', async () => {
     const host = new PluginRpcHost('p', new Set(['notify:send']), deps);
     expect(ok(await host.dispatch(req('notify.send', { input: { title: 'Delay', body: 'AB123 is late', scope: 'user', targetId: 42 } }), 42))).toBe(true);

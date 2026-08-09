@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { AtlasController } from './atlas.controller';
 import { AtlasService } from './atlas.service';
+import { AtlasRpc } from './atlas.rpc';
+import { PluginGuardsModule } from '../plugins/host/plugin-guards.module';
 import { AtlasMcp } from './atlas.mcp';
 
 /**
@@ -10,8 +12,9 @@ import { AtlasMcp } from './atlas.mcp';
  * it after app.init().
  */
 @Module({
+  imports: [PluginGuardsModule],
   controllers: [AtlasController],
-  providers: [AtlasService, AtlasMcp],
+  providers: [AtlasService, AtlasMcp, AtlasRpc],
   exports: [AtlasService],
 })
 export class AtlasModule {}

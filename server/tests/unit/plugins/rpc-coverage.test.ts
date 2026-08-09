@@ -54,8 +54,8 @@ describe('plugin RPC coverage ledger', () => {
     // Update these two numbers in every rollout PR. They make the diff state the size
     // of the move out loud, which is the number a reviewer wants to see.
     const total = KNOWN_METHODS.length + UNCONDITIONAL_METHODS.length;
-    expect(fromRegistry.size).toBe(61);
-    expect(legacy.size).toBe(total - 61);
+    expect(fromRegistry.size).toBe(93);
+    expect(legacy.size).toBe(total - 93);
   });
 
   it('RPCLEDGER-006 the migrated methods are exactly the ones this PR claims', () => {
@@ -63,7 +63,29 @@ describe('plugin RPC coverage ledger', () => {
       'accommodations.create',
       'accommodations.delete',
       'accommodations.update',
+      'atlas.bucketList',
+      'atlas.createBucketItem',
+      'atlas.deleteBucketItem',
+      'atlas.markCountry',
+      'atlas.markRegion',
+      'atlas.unmarkCountry',
+      'atlas.unmarkRegion',
+      'atlas.visited',
       'categories.list',
+      'collab.createMessage',
+      'collab.createNote',
+      'collab.createPoll',
+      'collab.listMessages',
+      'collab.listNotes',
+      'collab.listPolls',
+      'collab.votePoll',
+      'collections.copyToTrip',
+      'collections.create',
+      'collections.deletePlace',
+      'collections.get',
+      'collections.listMine',
+      'collections.savePlace',
+      'collections.update',
       'costs.create',
       'costs.delete',
       'costs.getByTrip',
@@ -84,6 +106,13 @@ describe('plugin RPC coverage ledger', () => {
       'files.update',
       'itinerary.assign',
       'itinerary.unassign',
+      'journal.createEntry',
+      'journal.createJourney',
+      'journal.deleteEntry',
+      'journal.deleteJourney',
+      'journal.getEntries',
+      'journal.listMine',
+      'journal.updateEntry',
       'packing.create',
       'packing.createBag',
       'packing.delete',
@@ -120,6 +149,9 @@ describe('plugin RPC coverage ledger', () => {
       'trips.members',
       'trips.removeMember',
       'trips.update',
+      'vacay.mine',
+      'vacay.toggleCompanyHoliday',
+      'vacay.toggleEntry',
       'weather.get',
     ]);
   });

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { TrekPhotosModule } from '../photos/trek-photos.module';
 import { JourneyDomainService } from './journey-domain.service';
+import { JournalRpc } from './journal.rpc';
+import { PluginGuardsModule } from '../plugins/host/plugin-guards.module';
 import { JourneyShareService } from './journey-share.service';
 
 /**
@@ -16,8 +18,8 @@ import { JourneyShareService } from './journey-share.service';
  * single-domain e2e TestingModule can still resolve the broadcast.
  */
 @Module({
-  imports: [RealtimeModule, TrekPhotosModule],
-  providers: [JourneyDomainService, JourneyShareService],
+  imports: [RealtimeModule, TrekPhotosModule, PluginGuardsModule],
+  providers: [JourneyDomainService, JourneyShareService, JournalRpc],
   exports: [JourneyDomainService, JourneyShareService],
 })
 export class JourneyDomainModule {}

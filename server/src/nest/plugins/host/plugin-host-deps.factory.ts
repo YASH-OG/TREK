@@ -196,37 +196,7 @@ export class PluginHostDepsFactory {
       // must live on the same trip (findForeignLinkTarget). Same events as the app. ---
       // --- Collab reads (collab addon; membership checked by the host). Same hydrated
       // shapes as the REST GETs, so a collab plugin can finally read what it writes. ---
-      listCollabNotes: (tripId) => { requireAddon(ADDON_IDS.COLLAB, 'collab'); return this.collab.listNotes(tripId) as unknown[]; },
-      listCollabPolls: (tripId) => { requireAddon(ADDON_IDS.COLLAB, 'collab'); return this.collab.listPolls(tripId) as unknown[]; },
-      listCollabMessages: (tripId, before) => { requireAddon(ADDON_IDS.COLLAB, 'collab'); return this.collab.listMessages(tripId, before) as unknown[]; },
       // --- Collab content (collab addon). The services validate + self-report errors. ---
-      canEditCollab: (tripId, userId) => this.canEditTripAs('collab_edit', tripId, userId),
-      createCollabNote: (tripId, input, actingUserId) => {
-        requireAddon(ADDON_IDS.COLLAB, 'collab');
-        const note = this.collab.createNote(String(tripId), actingUserId, input as never);
-        this.realtime.broadcast(tripId, 'collab:note:created', { note }, undefined);
-        return note;
-      },
-      createCollabPoll: (tripId, input, actingUserId) => {
-        requireAddon(ADDON_IDS.COLLAB, 'collab');
-        const poll = this.collab.createPoll(String(tripId), actingUserId, input as never);
-        this.realtime.broadcast(tripId, 'collab:poll:created', { poll }, undefined);
-        return poll;
-      },
-      voteCollabPoll: (tripId, pollId, optionIndex, actingUserId) => {
-        requireAddon(ADDON_IDS.COLLAB, 'collab');
-        const result = this.collab.votePoll(String(tripId), String(pollId), actingUserId, optionIndex);
-        if (result.error) throw new BadParams(result.error);
-        this.realtime.broadcast(tripId, 'collab:poll:voted', { poll: result.poll }, undefined);
-        return result.poll;
-      },
-      createCollabMessage: (tripId, text, replyTo, actingUserId) => {
-        requireAddon(ADDON_IDS.COLLAB, 'collab');
-        const result = this.collab.createMessage(String(tripId), actingUserId, text, replyTo ?? null);
-        if (result.error) throw new BadParams(result.error);
-        this.realtime.broadcast(tripId, 'collab:message:created', { message: result.message }, undefined);
-        return result.message;
-      },
       // --- Member add (member_manage). Grants trip access — the target must exist;
       // the acting user is recorded as the inviter. Owner/duplicate adds are no-ops. ---
       // --- Host-mediated notifications. Recipient resolution + channel fan-out +
@@ -347,97 +317,12 @@ export class PluginHostDepsFactory {
       // --- User-scoped addon reads (the acting user's own data across all trips). Each
       // reuses the same service the addon's REST/MCP path uses; the addon-enabled gate
       // mirrors the app (a disabled addon has nothing to read). ---
-      listJournalsForUser: (userId) => { requireAddon(ADDON_IDS.JOURNEY, 'journey'); return this.journey.listJourneys(userId); },
-      journalEntriesForUser: (userId, journeyId) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        // listEntries self-gates via canAccessJourney(journeyId, userId) → null if the
-        // user can't see it (owner/contributor only).
-        const entries = this.journey.listEntries(journeyId, userId);
-        if (entries === null) throw new ForbiddenResource(`no access to journey ${journeyId}`);
-        return entries;
-      },
-      atlasVisitedForUser: (userId) => {
-        requireAddon(ADDON_IDS.ATLAS, 'atlas');
-        return { countries: this.atlas.listVisitedCountries(userId), regions: this.atlas.listManuallyVisitedRegions(userId) };
-      },
-      atlasBucketForUser: (userId) => { requireAddon(ADDON_IDS.ATLAS, 'atlas'); return this.atlas.bucketList(userId) as unknown[]; },
-      vacayForUser: (userId) => { requireAddon(ADDON_IDS.VACAY, 'vacay'); return this.vacay.getPlanData(userId); },
-      listCollectionsForUser: (userId) => { requireAddon(ADDON_IDS.COLLECTIONS, 'collections'); return this.collections.listCollections(userId); },
-      getCollectionForUser: (userId, id) => { requireAddon(ADDON_IDS.COLLECTIONS, 'collections'); return this.collections.getCollection(userId, id); },
       // --- Collections write. The service self-gates per-collection role (assertAccess/
       // assertCanEdit throw status-tagged errors) — map those to the RPC error codes. ---
-      createCollectionForUser: (userId, input) => {
-        requireAddon(ADDON_IDS.COLLECTIONS, 'collections');
-        return mapCollectionError(() => this.collections.createCollection(userId, input as never));
-      },
-      updateCollectionForUser: (userId, id, input) => {
-        requireAddon(ADDON_IDS.COLLECTIONS, 'collections');
-        return mapCollectionError(() => this.collections.updateCollection(userId, id, input as never, undefined));
-      },
-      saveCollectionPlace: (userId, input) => {
-        requireAddon(ADDON_IDS.COLLECTIONS, 'collections');
-        return mapCollectionError(() => this.collections.savePlace(userId, input as never, undefined));
-      },
-      copyCollectionToTrip: (userId, input) => {
-        requireAddon(ADDON_IDS.COLLECTIONS, 'collections');
-        return mapCollectionError(() => this.collections.copyToTrip(userId, input as never));
-      },
-      deleteCollectionPlace: (userId, placeId) => {
-        requireAddon(ADDON_IDS.COLLECTIONS, 'collections');
-        mapCollectionError(() => this.collections.deletePlace(userId, placeId, undefined));
-        return { deleted: true };
-      },
       // --- Atlas write: plain uid-scoped rows, no broadcasts in the service. ---
-      markCountryVisited: (userId, code) => { requireAddon(ADDON_IDS.ATLAS, 'atlas'); this.atlas.markCountry(userId, code); return { visited: true }; },
-      unmarkCountryVisited: (userId, code) => { requireAddon(ADDON_IDS.ATLAS, 'atlas'); this.atlas.unmarkCountry(userId, code); return { visited: false }; },
-      markRegionVisited: (userId, regionCode, regionName, countryCode) => {
-        requireAddon(ADDON_IDS.ATLAS, 'atlas');
-        this.atlas.markRegion(userId, regionCode, regionName, countryCode);
-        return { visited: true };
-      },
-      unmarkRegionVisited: (userId, regionCode) => { requireAddon(ADDON_IDS.ATLAS, 'atlas'); this.atlas.unmarkRegion(userId, regionCode); return { visited: false }; },
-      createBucketItem: (userId, input) => { requireAddon(ADDON_IDS.ATLAS, 'atlas'); return this.atlas.createBucketItem(userId, input as never); },
-      deleteBucketItem: (userId, itemId) => {
-        requireAddon(ADDON_IDS.ATLAS, 'atlas');
-        if (!this.atlas.deleteBucketItem(userId, itemId)) throw new ForbiddenResource(`no bucket item ${itemId} for this user`);
-        return { deleted: true };
-      },
       // --- Vacay write: the plan is the ACTING USER's active plan (resolved host-side);
       // the service broadcasts to plan users itself. ---
-      vacayToggleEntry: (userId, date) => { requireAddon(ADDON_IDS.VACAY, 'vacay'); return this.vacay.toggleEntry(userId, this.vacay.getActivePlanId(userId), date, 1, 'vacation', undefined); },
-      vacayToggleCompanyHoliday: (userId, date, note) => {
-        requireAddon(ADDON_IDS.VACAY, 'vacay');
-        return this.vacay.toggleCompanyHoliday(this.vacay.getActivePlanId(userId), date, note, undefined);
-      },
       // --- Journal write: journeyService.canEdit self-gates each call (owner/contributor). ---
-      createJournalEntry: (userId, journeyId, input) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        const entry = this.journey.createEntry(journeyId, userId, input as never);
-        if (!entry) throw new ForbiddenResource(`no editable journey ${journeyId} for this user`);
-        return entry;
-      },
-      updateJournalEntry: (userId, entryId, input) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        const entry = this.journey.updateEntry(entryId, userId, input as never);
-        if (!entry) throw new ForbiddenResource(`no editable journal entry ${entryId} for this user`);
-        return entry;
-      },
-      deleteJournalEntry: (userId, entryId) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        if (!this.journey.deleteEntry(entryId, userId)) throw new ForbiddenResource(`no editable journal entry ${entryId} for this user`);
-        return { deleted: true };
-      },
-      createJournal: (userId, input) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        const title = typeof (input as { title?: unknown }).title === 'string' ? String((input as { title: string }).title).trim() : '';
-        if (!title) throw new BadParams('journal title is required');
-        return this.journey.createJourney(userId, { title, subtitle: (input as { subtitle?: string }).subtitle, trip_ids: (input as { trip_ids?: number[] }).trip_ids });
-      },
-      deleteJournal: (userId, journeyId) => {
-        requireAddon(ADDON_IDS.JOURNEY, 'journey');
-        if (!this.journey.deleteJourney(journeyId, userId)) throw new ForbiddenResource(`no deletable journal ${journeyId} for this user`);
-        return { deleted: true };
-      },
       // Day notes are core (no addon) and trip-scoped; membership is enforced by the host.
       // --- Day notes write (day_edit). The day must belong to the trip; broadcasts the
       // same dayNote:* events the REST controller emits so open sessions update live. ---

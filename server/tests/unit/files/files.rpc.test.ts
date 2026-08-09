@@ -232,6 +232,26 @@ describe('FilesRpc writes', () => {
     }
   });
 
+  it('FILES-RPC-016c link ids are stringified, and absent ones become null', async () => {
+    const f = build();
+    await f.host('db:write:files').dispatch(req('files.createLink', { tripId: 1, fileId: 2, opts: { reservation_id: 9, assignment_id: 3 } }), 42);
+    expect(f.files.createFileLink).toHaveBeenCalledWith(2, { reservation_id: '9', assignment_id: '3', place_id: null });
+  });
+
+  it('FILES-RPC-016d create stores its optional link ids as strings', async () => {
+    const f = build();
+    await f.host('db:write:files').dispatch(
+      req('files.create', { tripId: 1, input: { name: 'a.pdf', content_base64: b64('x'), place_id: 7, reservation_id: 9, description: 'd' } }), 42,
+    );
+    expect(f.files.createFile).toHaveBeenCalledWith(1, expect.anything(), 42, { place_id: '7', reservation_id: '9', description: 'd' });
+  });
+
+  it('FILES-RPC-016e a file with no recorded size or mimetype still reads', async () => {
+    const f = build({ file: { filename: 'visa.pdf', original_name: 'visa.pdf', mime_type: null, file_size: null, deleted_at: null } });
+    const res = await f.host('db:read:files:content').dispatch(req('files.getContent', { tripId: 1, fileId: 2 }), 42);
+    expect((res as { result: { mimetype: string } }).result.mimetype).toBe('application/octet-stream');
+  });
+
   it('FILES-RPC-017 the class is listed in its module providers', () => {
     expect(Reflect.getMetadata('providers', FilesModule) as unknown[]).toContain(FilesRpc);
   });

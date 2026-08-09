@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { VacayController } from './vacay.controller';
 import { VacayService } from './vacay.service';
+import { VacayRpc } from './vacay.rpc';
+import { PluginGuardsModule } from '../plugins/host/plugin-guards.module';
 import { VacayMcp } from './vacay.mcp';
 import { AuthModule } from '../auth/auth.module';
 
@@ -10,9 +12,9 @@ import { AuthModule } from '../auth/auth.module';
  * VacayMcp carries the DI-discovered MCP tools/resources.
  */
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, PluginGuardsModule],
   controllers: [VacayController],
-  providers: [VacayService, VacayMcp],
+  providers: [VacayService, VacayMcp, VacayRpc],
   exports: [VacayService],
 })
 export class VacayModule {}
